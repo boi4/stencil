@@ -65,19 +65,21 @@ int main(int argc, char* argv[])
 void stencil(const int nx, const int ny, const int width, const int height,
              float* image, float* tmp_image)
 {
-  int lim = (ny + 1) * height;
-  float tmp;
+  float sum, cur, nxt;
 
+  int lim = (ny + 1) * height;
   for (int j = height; j < lim; j += height) {
-    float ib4 = image[j];
-    for (int i = 1; i < nx + 1; ++i) {
-      tmp  = ib4;
-      ib4  = image[j     +       i];
-      tmp += ib4 * 6.0f;
-      tmp += tmp_image[j     + (i + 1)];
-      tmp += image[j - height  + i];
-      tmp += image[j + height  + i];
-      tmp_image[j + i] = tmp * 0.1f;
+    cur = image[j];
+    nxt = image[j + 1];
+    for (int i = 1; i < nx + 1; i++) {
+      sum  = cur; // add previous field
+      sum += nxt * 6.0f; // add current field
+      cur  = nxt;
+      nxt  = image[j+(i + 1)]; // next field
+      sum += nxt; // add next field
+      sum += image[j - height  + i];
+      sum += image[j + height  + i];
+      tmp_image[j + i] = sum * 0.1f;
     }
   }
 }
