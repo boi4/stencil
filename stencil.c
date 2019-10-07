@@ -8,13 +8,12 @@
 
 
 void stencil(const int nx, const int ny, const int width, const int height,
-             float* image);
+             float* image, float* tmp_image);
 void init_image(const int nx, const int ny, const int width, const int height,
-                float* image);
+                float* image, float* tmp_image);
 void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 double wtime(void);
-
 
 int main(int argc, char* argv[])
 {
@@ -36,16 +35,18 @@ int main(int argc, char* argv[])
 
   // Allocate the image
   float *image = calloc(sizeof(float) * width * height, 1);
+  float *tmp_image = calloc(sizeof(float) * width * height, 1);
 
   // Set the input image
-  init_image(nx, ny, width, height, image);
+  init_image(nx, ny, width, height, image, tmp_image);
 
   // Call the stencil kernel
   double tic = wtime();
 
 
-  for (int t = 0; t < 2 * niters; ++t) {
-    stencil(nx, ny, width, height, image);
+  for (int t = 0; t < niters; ++t) {
+    stencil(nx, ny, width, height, image, tmp_image);
+    stencil(nx, ny, width, height, tmp_image, image);
   }
 
 
@@ -58,34 +59,29 @@ int main(int argc, char* argv[])
 
   output_image(OUTPUT_FILE, nx, ny, width, height, image);
   free(image);
+  free(tmp_image);
 }
 
 void stencil(const int nx, const int ny, const int width, const int height,
-             float* image)
+             float* image, float* tmp_image)
 {
-  // TODO: edge case
-  float tmpx[2];
-
-  int jlim = height * (ny + 1);
-  for (int j = height; j < jlim; j += height) {
-    tmpx[0] = image[    j];
-    tmpx[1] = image[1 + j];
-    int p = 0;
+  int lim = (ny + 1) * height;
+  float tmp;
+  for (int j = height; j < lim; j += height) {
     for (int i = 1; i < nx + 1; ++i) {
-      image[i + j] += tmpx[ p     ] * (3.0f/5.0f);
-      tmpx[p] = image[i + j + 1]
-      image[i + j] += tmpx[p]
-      p = 1 - p;
-      image[i + j] =  tmpx[(p+1)%3] * (0.5f/5.0f);
-      image[i + j] += image[i     + (j - height)] * (0.5f/5.0f);
-      image[i + j] += image[i     + (j + height)] * (0.5f/5.0f);
+      tmp  = image[j     +       i] * (3.0/5.0);
+      tmp += image[j     + (i - 1)] * (0.5/5.0);
+      tmp += image[j     + (i + 1)] * (0.5/5.0);
+      tmp += image[j - height  + i] * (0.5/5.0);
+      tmp += image[j + height  + i] * (0.5/5.0);
+      tmp_image[j + i] = tmp;
     }
   }
 }
 
 // Create the input image
 void init_image(const int nx, const int ny, const int width, const int height,
-                float *image)
+                float *image, float *tmp_image)
 {
   const int tile_size = 64;
   // checkerboard pattern
@@ -107,14 +103,13 @@ void init_image(const int nx, const int ny, const int width, const int height,
 
 
 
-  //const float start_val_arr[] = { START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL,
-  //                                START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL, START_VAL };
+
+
+
+
+
+
+
 
 // =====================================================================================================
 
