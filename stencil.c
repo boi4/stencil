@@ -2,19 +2,17 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-#include <math.h>
-
 
 // Define output file name
 #define OUTPUT_FILE "stencil.pgm"
 
 
 void stencil(const int nx, const int ny, const int width, const int height,
-             double* image, double* tmp_image);
+             float* image, float* tmp_image);
 void init_image(const int nx, const int ny, const int width, const int height,
-                double* image, double* tmp_image);
+                float* image, float* tmp_image);
 void output_image(const char* file_name, const int nx, const int ny,
-                  const int width, const int height, double* image);
+                  const int width, const int height, float* image);
 double wtime(void);
 
 int main(int argc, char* argv[])
@@ -36,8 +34,8 @@ int main(int argc, char* argv[])
   int height = ny + 2;
 
   // Allocate the image
-  double *image = malloc(sizeof(double) * width * height);
-  double *tmp_image = malloc(sizeof(double) * width * height);
+  float *image = calloc(sizeof(float) * width * height, 1);
+  float *tmp_image = calloc(sizeof(float) * width * height, 1);
 
   // Set the input image
   init_image(nx, ny, width, height, image, tmp_image);
@@ -49,14 +47,6 @@ int main(int argc, char* argv[])
   for (int t = 0; t < niters; ++t) {
     stencil(nx, ny, width, height, image, tmp_image);
     stencil(nx, ny, width, height, tmp_image, image);
-  }
-
-  double a = pow(0.5, 5 * 2 * niters);
-
-  for (int j = 1; j < ny + 1; ++j) {
-    for (int i = 1; i < nx + 1; ++i) {
-      image[j + i * height] =  image[j+i*height] / a;
-    }
   }
 
 
@@ -73,35 +63,28 @@ int main(int argc, char* argv[])
 }
 
 void stencil(const int nx, const int ny, const int width, const int height,
-             double* image, double* tmp_image)
+             float* image, float* tmp_image)
 {
   for (int j = 1; j < ny + 1; ++j) {
     for (int i = 1; i < nx + 1; ++i) {
-      tmp_image[j + i * height] =  image[j     + i       * height] * 3.0;
-      tmp_image[j + i * height] += image[j     + (i - 1) * height] * 0.5;
-      tmp_image[j + i * height] += image[j     + (i + 1) * height] * 0.5;
-      tmp_image[j + i * height] += image[j - 1 + i       * height] * 0.5;
-      tmp_image[j + i * height] += image[j + 1 + i       * height] * 0.5;
+      tmp_image[j + i * height] =  image[j     + i       * height] * (3.0/5.0);
+      tmp_image[j + i * height] += image[j     + (i - 1) * height] * (0.5/5.0);
+      tmp_image[j + i * height] += image[j     + (i + 1) * height] * (0.5/5.0);
+      tmp_image[j + i * height] += image[j - 1 + i       * height] * (0.5/5.0);
+      tmp_image[j + i * height] += image[j + 1 + i       * height] * (0.5/5.0);
     }
   }
 }
 
 // Create the input image
 void init_image(const int nx, const int ny, const int width, const int height,
-                double *image, double *tmp_image)
+                float *image, float *tmp_image)
 {
-  // Zero everything
-  for (int j = 0; j < ny + 2; ++j) {
-    for (int i = 0; i < nx + 2; ++i) {
-      image[j + i * height] = 0.0;
-      tmp_image[j + i * height] = 0.0;
-    }
-  }
-
   const int tile_size = 64;
   // checkerboard pattern
   for (int jb = 0; jb < ny; jb += tile_size) {
     for (int ib = 0; ib < nx; ib += tile_size) {
+
       if ((ib + jb) % (tile_size * 2)) {
         const int jlim = (jb + tile_size > ny) ? ny : jb + tile_size;
         const int ilim = (ib + tile_size > nx) ? nx : ib + tile_size;
@@ -130,7 +113,7 @@ void init_image(const int nx, const int ny, const int width, const int height,
 
 // Routine to output the image in Netpbm grayscale binary image format
 void output_image(const char* file_name, const int nx, const int ny,
-                  const int width, const int height, double* image)
+                  const int width, const int height, float* image)
 {
   // Open output file
   FILE* fp = fopen(file_name, "w");
@@ -145,7 +128,7 @@ void output_image(const char* file_name, const int nx, const int ny,
   // Calculate maximum value of image
   // This is used to rescale the values
   // to a range of 0-255 for output
-  double maximum = 0.0;
+  float maximum = 0.0;
   for (int j = 1; j < ny + 1; ++j) {
     for (int i = 1; i < nx + 1; ++i) {
       if (image[j + i * height] > maximum) maximum = image[j + i * height];
@@ -155,7 +138,7 @@ void output_image(const char* file_name, const int nx, const int ny,
   // Output image, converting to numbers 0-255
   for (int j = 1; j < ny + 1; ++j) {
     for (int i = 1; i < nx + 1; ++i) {
-      fputc((char)(255.0 * image[j + i * height] / maximum), fp);
+      fputc((char)(255.0f * image[j + i * height] / maximum), fp);
     }
   }
 
