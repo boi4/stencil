@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <sys/mman.h>
 
 
 // Define output file name
@@ -24,6 +25,7 @@ int main(int argc, char* argv[])
   }
 
   // Initiliase problem dimensions from command line arguments
+  // TODO: change to unsigned, dont't use atoi
   int nx = atoi(argv[1]);
   int ny = atoi(argv[2]);
   int niters = atoi(argv[3]);
@@ -34,8 +36,16 @@ int main(int argc, char* argv[])
   int height = ny + 2;
 
   // Allocate the image
-  float *image = calloc(sizeof(float) * width * height, 1);
-  float *tmp_image = calloc(sizeof(float) * width * height, 1);
+  unsigned long image_size = ((width * height * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+
+  float *image = (float *)mmap(NULL, image_size,
+                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                               -1, 0);
+  float *tmp_image = (float *)mmap(NULL, image_size,
+                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                               -1, 0);
+ // printf("image at %p\n", image);
+  //printf("tmp_image at %p\n", tmp_image);
 
   // Set the input image
   init_image(nx, ny, width, height, image, tmp_image);
@@ -58,8 +68,6 @@ int main(int argc, char* argv[])
   printf("------------------------------------\n");
 
   output_image(OUTPUT_FILE, nx, ny, width, height, image);
-  free(image);
-  free(tmp_image);
 }
 
 void stencil(const int nx, const int ny, const int width, const int height,
@@ -116,6 +124,8 @@ void init_image(const int nx, const int ny, const int width, const int height,
 
 
 
+// =====================================================================================================
+// NOT TOUCHED
 // =====================================================================================================
 
 
