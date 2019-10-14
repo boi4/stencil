@@ -38,13 +38,14 @@ int main(int argc, char* argv[])
   // Allocate the image
   unsigned long image_size = ((width * height * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
 
-  float *image = (float *)mmap(NULL, image_size,
+  float *image = (float *)mmap(NULL, image_size << 1,
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
-  float *tmp_image = (float *)mmap(NULL, image_size,
-                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
-                               -1, 0);
- // printf("image at %p\n", image);
+  float *tmp_image = (float *)((char *)image + image_size);
+                            
+                           
+  // check alignment
+  //printf("image at %p\n", image);
   //printf("tmp_image at %p\n", tmp_image);
 
   // Set the input image
