@@ -9,6 +9,14 @@ float row_buffer2[64]; // holds the previous row
 extern void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 
+
+void print_row(float *row) {
+  for(int i = 0; i < 64; i++) {
+    putchar(row[i]>50.0?'o':'x'); // o is light x is dark
+  }
+  putchar('\n');
+}
+
 /* This function will stenctil the part where four tiles meet
  * it will simulate an infinite space by wrapping around the corners
  * probably could be optimized by using the symmetry following the diagonals
@@ -19,15 +27,6 @@ void stencil_four_tiles(size_t niters) {
 
   // create chessboard pattern
   for (size_t i = 0; i < 32; i++) {
-    row_buffer[i] = 0.0f;
-  }
-  for (size_t i = 32; i < 64; i++) {
-    row_buffer[i] = 100.0f;
-  }
-  for (size_t i = 0; i < 32; i++) {
-      memcpy(field[i], row_buffer, sizeof(row_buffer));
-  }
-  for (size_t i = 0; i < 32; i++) {
     row_buffer[i] = 100.0f;
   }
   for (size_t i = 32; i < 64; i++) {
@@ -36,15 +35,27 @@ void stencil_four_tiles(size_t niters) {
   for (size_t i = 32; i < 64; i++) {
       memcpy(field[i], row_buffer, sizeof(row_buffer));
   }
+  for (size_t i = 0; i < 32; i++) {
+    row_buffer[i] = 0.0f;
+  }
+  for (size_t i = 32; i < 64; i++) {
+    row_buffer[i] = 100.0f;
+  }
+  for (size_t i = 0; i < 32; i++) {
+      memcpy(field[i], row_buffer, sizeof(row_buffer));
+  }
+  // we first do the lower half because we don't have to init row_buffer again
 
 
   // switch this one around
-  for(size_t i = 0; i < 64; i++) {row_buffer[i] = field[63][63-i];}
   prev_row = row_buffer;
   cur_row = row_buffer2;
 
   for (size_t i = 0; i < niters; i++) {
     for (size_t row = 0; row < 63; row++) {
+      // backup current row
+      memcpy(cur_row, field[row], sizeof(row_buffer));
+
       cur = field[63-row][63];
       nxt = field[row][0];
       for(size_t col = 0; col < 63; col++) {
@@ -64,9 +75,7 @@ void stencil_four_tiles(size_t niters) {
       field[row][63] = sum;
 
 
-      // line additions
-      // backup current line
-      memcpy(cur_row, field[row], sizeof(row_buffer));
+      // row additions
       // TODO: vecorize
       // Add previous and following line
       float *nxt_row = field[row + 1];
