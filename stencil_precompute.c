@@ -201,7 +201,7 @@ void stencil_border_part(size_t border_size,
                          bool reverse // wether to go from the bottom to the top
                          ) {
 
-  float *vert_field = __builtin_assume_aligned(vert_field_arg, 128);
+  float * restrict vert_field = __builtin_assume_aligned(vert_field_arg, 128);
   float tmp;
 
   static float row_buffer[64]  __attribute__ ((aligned (128)));
@@ -219,22 +219,28 @@ void stencil_border_part(size_t border_size,
     for (size_t i = 0; i < 64; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
 
     for (size_t row = 0; row < num_rows; row++) {
-      float * restrict cur_row = &vert_field[reverse ? (2 * border_size - row) << 7: row<<7];
+      float * restrict cur_row = vert_field + (reverse ? (2 * border_size - row) << 6: row << 6);
 
       // stencil over the horizontal
-      memcpy(cur_row_bak, cur_row, 64);
-
-      cur_row[ 0] = cur_row_bak[ 0] * 7.0f + cur_row_bak[ 1];
-      cur_row[63] = cur_row_bak[63] * 7.0f + cur_row_bak[62];
+      row_buffer3[ 0] = cur_row[ 0] * 7.0f + cur_row[ 1];
       for (size_t col = 1; col < 63; col++) {
-        cur_row[col] = cur_row_bak[col] * 6.0f + cur_row_bak[col+1] + cur_row_bak[col-1];
+        row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
+      row_buffer3[63] = cur_row[63] * 7.0f + cur_row[62];
+      
+      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
+      //cur_row[ 0] = cur_row_bak[ 0] * 7.0f + cur_row_bak[ 1];
+      //for (size_t col = 1; col < 63; col++) {
+      //  cur_row[col] = cur_row_bak[col] * 6.0f + cur_row_bak[col+1] + cur_row_bak[col-1];
+      //}
+      //cur_row[63] = cur_row_bak[63] * 7.0f + cur_row_bak[62];
 
       // row additions
       // Add previous and following line
       float * restrict nxt_row = reverse ? cur_row - 64 : cur_row + 64;
       for (size_t col = 0; col < 64; col++) {
         tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
+        //tmp = prev_row_bak[col] + nxt_row[col] + cur_row[col];
         cur_row[col] = tmp * 0.1f;
       }
 
