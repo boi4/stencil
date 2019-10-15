@@ -17,9 +17,17 @@ void init_image(const int nx, const int ny, const int width, const int height,
 void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 
-extern void stencil_four_tiles(size_t niters); // defined in stencil_precomupte.c
-extern float field_small[64][64]; // defined in stencil_precomupte.c
-extern float field_big[128][128]; // defined in stencil_precomupte.c
+struct float_ptr_pair {
+  float *ptr1;
+  float *ptr2;
+};
+
+extern void precompute_center(size_t niters); // defined in stencil_precomupte.c
+extern struct float_ptr_pair precompute_upper_border(size_t niters); // defined in stencil_precomupte.c
+extern void dump_field(char *fname, int nx, int ny, float *field); // defined in stencil_precomupte.c
+
+extern float center_small[64][64]; // defined in stencil_precomupte.c
+extern float center_big[128][128]; // defined in stencil_precomupte.c
 
 double wtime(void);
 
@@ -36,7 +44,7 @@ int main(int argc, char* argv[])
   // Initiliase problem dimensions from command line arguments
   size_t nx     = strtoul(argv[1], NULL, 0);
   size_t ny     = strtoul(argv[2], NULL, 0);
-  size_t niters = strtoul(argv[3], NULL, 0);
+  size_t niters = 2*strtoul(argv[3], NULL, 0);
 
   // we pad the outer edge of the image to avoid out of range address issues in
   // stencil
@@ -50,6 +58,11 @@ int main(int argc, char* argv[])
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
   float * restrict tmp_image = (float *)((char *)image + image_size);
+
+  if (!image) {
+    fprintf(stderr, "Memory Error\n");
+    exit(-1);
+  }
                             
   // Set the input image
   init_image(nx, ny, width, height, image, tmp_image);
@@ -73,20 +86,29 @@ int main(int argc, char* argv[])
 void stencil(const int nx, const int ny, const int width, const int height, const int niters,
              float* image, float* tmp_image) {
 
-  const size_t border_size = (2 * niters);
+  const size_t border_size = niters;
 
   if (nx < 2 * border_size || ny < 2 * border_size) { // we cannot optimize in this case
-    for (int t = 0; t < niters; ++t) { // TODO: find different solution
+    for (int t = 0; t < niters/2; ++t) { // TODO: find different solution
       stencil_full(nx, ny, width, height, image, tmp_image);
       stencil_full(nx, ny, width, height, tmp_image, image);
     }
   } else {
-    // apply precomputed stencil
-    stencil_four_tiles(2*niters);
+//    for (int t = 0; t < niters/2; ++t) { // TODO: find different solution
+//      stencil_full(nx, ny, width, height, image, tmp_image);
+//      stencil_full(nx, ny, width, height, tmp_image, image);
+//    }
+    // precompute stuff
+    precompute_center(niters);
+    struct float_ptr_pair p = precompute_upper_border(niters);
+    float *vert_border_field = p.ptr1;
+    float *horiz_border_field = p.ptr2;
 
+
+    // fill center
     for (size_t row = border_size; row < ny-border_size; row++) {
 
-      float * restrict cur_row_read = field_big[row & 0x7f];
+      float * restrict cur_row_read = center_big[row & 0x7f];
       float * restrict cur_row_write = &image[(row+1) * width+1];
 
       for(size_t col = border_size; col < nx-border_size; col++) {
@@ -94,8 +116,16 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
       }
     }
 
-    // borders TODO
-    float sum;
+//    float *a = (float *) malloc(128 * border_size * sizeof(float));
+//    for (size_t row = 0; row < border_size; row++) {
+//      for (size_t col = 0; col < 128; col++) {
+//        a[row * 128 + col] = image[(row+1)*width + 256 + col + 1];
+//      }
+//    }
+//    dump_field("good_border.pgm", 128, border_size, a);
+
+
+//    float sum;
 //    for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
 //      for (size_t row = 0; row < num_rows; row++) {
 //        for (size_t col = 0; col < 2 * border_size; col++) {
@@ -109,35 +139,25 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
 //      }
 //    }
 
-    // TODO: Add other edges here
-
-    size_t col_start = (2 * border_size + 127) & ~0x7f;
-    size_t col_end = col_start + 128;
-    for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
-      for (size_t row = 0; row < num_rows; row++) {
-        for (size_t col = col_start; col < col_end; col++) {
-          sum  = image[(row+1) * width + col + 1]*6.0f;
-
-          sum += image[(row+1) * width + col_start + (col-1)%128+1];
-          sum += image[(row+1) * width + col_start + (col + 1)%128+1];
-
-          sum += image[(row) * width + col + 1];
-          sum += image[(row+2) * width + col + 1];
-          image[(row+1) * width + col + 1] = 0.1f * sum;
-        }
-      }
-    }
-
+    // fill upper border
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_write = &image[(row+1) * width+1];
-      float * restrict cur_row_read = cur_row_write;
-      for (size_t col = 2 * border_size; col < col_start; col++) {
-        //cur_row_read[col] = cur_row_write[(col_start + col) % 128];
-      }
-      for (size_t col = col_end; col < nx-border_size; col++) {
-        cur_row_write[col] = cur_row_read[col_start + (col % 128)];
+      float * restrict cur_row_write = &image[(row+1) * width + 1];
+      float * restrict cur_row_read = &vert_border_field[row << 7];
+      for (size_t col = border_size; col < nx-border_size; col++) {
+        cur_row_write[col] = cur_row_read[col % 128];
       }
     }
+
+    // fill left border
+    for (size_t row = border_size; row < ny-border_size; row++) {
+      float * restrict cur_row_write = &image[(row+1) * width + 1];
+      float * restrict cur_row_read = &horiz_border_field[(row%128) * border_size];
+      for (size_t col = 0; col < border_size; col++) {
+        cur_row_write[col] = cur_row_read[col];
+      }
+    }
+
+
 
   }
 }

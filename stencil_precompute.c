@@ -1,11 +1,9 @@
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
-float field_small[64][64]; // [row][column], compiler will make two elements on same row be next to each other
-float field_big[128][128]; // will be computed out of field_small
-float row_buffer[64]; // holds the previous row
-float row_buffer2[64]; // holds the previous row
 
 extern void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
@@ -18,13 +16,33 @@ void print_row(float *row) {
   putchar('\n');
 }
 
-/* This function will stenctil the part where four tiles meet
+
+void dump_field(char *fname, int nx, int ny, float *field) {
+  float *tmp = malloc(sizeof(float) * (nx + 2) * (ny+2));
+  for (size_t row = 0; row < ny; row++) {
+    for(size_t col = 0; col < nx; col++) {
+      tmp[(row+1)*(nx+2) + col+1] = field[row*nx+col];
+    }
+  }
+  output_image(fname, nx, ny,
+                  nx+2, ny+2, (float *)tmp);
+}
+
+
+
+float center_small[64][64]; // [row][column], compiler will make two elements on same row be next to each other
+float center_big[128][128]; // will be computed out of center_small
+
+/* This function will stencil the part where four tiles meet
  * it will simulate an infinite space by wrapping around the corners
- * probably could be optimized by using the symmetry following the diagonals
+ * probably could be optimized by using the symmetry following the diagonals (using only one fourth of small_field)
  */
-void stencil_four_tiles(size_t niters) {
+void precompute_center(size_t niters) {
+  static float row_buffer[64]; // holds the previous row
+  static float row_buffer2[64]; // holds the previous row
+
   float sum, cur, nxt, tmp;
-  float * restrict prev_row, * restrict cur_row, * restrict tmp2;
+  float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
   // create chessboard pattern
   for (size_t i = 0; i < 32; i++) {
@@ -34,7 +52,7 @@ void stencil_four_tiles(size_t niters) {
     row_buffer[i] = 0.0f;
   }
   for (size_t i = 32; i < 64; i++) {
-      memcpy(field_small[i], row_buffer, sizeof(row_buffer));
+      memcpy(center_small[i], row_buffer, sizeof(row_buffer));
   }
   for (size_t i = 0; i < 32; i++) {
     row_buffer[i] = 0.0f;
@@ -43,88 +61,87 @@ void stencil_four_tiles(size_t niters) {
     row_buffer[i] = 100.0f;
   }
   for (size_t i = 0; i < 32; i++) {
-      memcpy(field_small[i], row_buffer, sizeof(row_buffer));
+      memcpy(center_small[i], row_buffer, sizeof(row_buffer));
   }
   // we first do the lower half because we don't have to init row_buffer again
 
 
-  // switch this one around
-  prev_row = row_buffer;
-  cur_row = row_buffer2;
+  prev_row_bak = row_buffer;
+  cur_row_bak = row_buffer2;
 
   for (size_t i = 0; i < niters; i++) {
     for (size_t row = 0; row < 63; row++) {
       // backup current row
-      memcpy(cur_row, field_small[row], sizeof(row_buffer));
+      memcpy(cur_row_bak, center_small[row], sizeof(row_buffer)); // TODO: do this while traversing the row
 
-      cur = field_small[63-row][63];
-      nxt = field_small[row][0];
+      cur = center_small[63-row][63];
+      nxt = center_small[row][0];
       for(size_t col = 0; col < 63; col++) {
-        sum  = cur; // add previous field_small
-        sum += nxt * 6.0f; // add current field_small
+        sum  = cur; // add previous field
+        sum += nxt * 6.0f; // add current field
         cur  = nxt;
-        nxt  = field_small[row][col+1];
-        sum += nxt; // add next field_small
-        field_small[row][col] = sum;
+        nxt  = center_small[row][col+1];
+        sum += nxt; // add next field
+        center_small[row][col] = sum; // TODO: maybe write this into other field
       }
       // special case for last column to avoid some modulo
-      sum  = cur; // add previous field_small
-      sum += nxt * 6.0f; // add current field_small
+      sum  = cur; // add previous field
+      sum += nxt * 6.0f; // add current field
       cur  = nxt;
-      nxt  = field_small[63-row][0];
-      sum += nxt; // add next field_small
-      field_small[row][63] = sum;
+      nxt  = center_small[63-row][0]; // TODO: this may use a wrong value
+      sum += nxt; // add next field
+      center_small[row][63] = sum;
 
 
       // row additions
       // TODO: vecorize
       // Add previous and following line
-      float * restrict nxt_row = field_small[row + 1];
+      float * restrict nxt_row = center_small[row + 1];
       for (size_t col = 0; col < 64; col++) {
-        tmp = prev_row[col] + nxt_row[col] + field_small[row][col];
-        field_small[row][col] = tmp * 0.1f;
+        tmp = prev_row_bak[col] + nxt_row[col] + center_small[row][col];
+        center_small[row][col] = tmp * 0.1f;
       }
 
       // switch buffers
-      tmp2 = prev_row;
-      prev_row = cur_row;
-      cur_row = tmp2;
+      tmp2 = prev_row_bak;
+      prev_row_bak = cur_row_bak;
+      cur_row_bak = tmp2;
     }
 
     // special case last row
-    cur = field_small[0][63];
-    nxt = field_small[63][0];
+    cur = center_small[0][63];
+    nxt = center_small[63][0];
     for(size_t col = 0; col < 63; col++) {
-      sum  = cur; // add previous field_small
-      sum += nxt * 6.0f; // add current field_small
+      sum  = cur; // add previous field
+      sum += nxt * 6.0f; // add current field
       cur  = nxt;
-      nxt  = field_small[63][col+1];
-      sum += nxt; // add next field_small
-      field_small[63][col] = sum;
+      nxt  = center_small[63][col+1];
+      sum += nxt; // add next field
+      center_small[63][col] = sum;
     }
     // special case to avoid some modulo
-    sum  = cur; // add previous field_small
-    sum += nxt * 6.0f; // add current field_small
+    sum  = cur; // add previous field
+    sum += nxt * 6.0f; // add current field
     cur  = nxt;
-    nxt  = field_small[0][0];
-    sum += nxt; // add next field_small
-    field_small[63][63] = sum;
+    nxt  = center_small[0][0]; // TODO: this will use a wrong value
+    sum += nxt; // add next field
+    center_small[63][63] = sum;
 
     // TODO: vectorize
     // Add previous and following line
-    float * restrict nxt_row = field_small[0];
+    float * restrict nxt_row = center_small[0];
     for (size_t col = 0; col < 64; col++) {
-      tmp = prev_row[col] + nxt_row[63-col] + field_small[63][col];
-      field_small[63][col] = tmp * 0.1f;
+      tmp = prev_row_bak[col] + nxt_row[63-col] + center_small[63][col];
+      center_small[63][col] = tmp * 0.1f;
     }
 
     // set reverse row for the first line in next iteration
-    for(size_t i = 0; i < 64; i++) {cur_row[i] = field_small[63][63-i];}
+    for(size_t i = 0; i < 64; i++) {cur_row_bak[i] = center_small[63][63-i];}
 
     // switch buffers
-    tmp2 = prev_row;
-    prev_row = cur_row;
-    cur_row = tmp2;
+    tmp2 = prev_row_bak;
+    prev_row_bak = cur_row_bak;
+    cur_row_bak = tmp2;
   }
 
 
@@ -132,54 +149,148 @@ void stencil_four_tiles(size_t niters) {
   // copy small field into the middle
   for (size_t row = 32; row < 96; row++) {
     for (size_t col = 32; col < 96; col++) {
-      field_big[row][col] = field_small[row-32][col-32];
+      center_big[row][col] = center_small[row-32][col-32];
     }
   }
 
   // mirror small field on the left
   for (size_t row = 32; row < 96; row++) {
     for (size_t col = 0; col < 32; col++) {
-      field_big[row][col] = field_big[row][63-col];
+      center_big[row][col] = center_big[row][63-col];
     }
   }
 
   // mirror small field on the right
   for (size_t row = 32; row < 96; row++) {
     for (size_t col = 96; col < 128; col++) {
-      field_big[row][col] = field_big[127-row][col-64];
+      center_big[row][col] = center_big[127-row][col-64];
     }
   }
 
   // mirror whole thing on top
   for (size_t row = 0; row < 32; row++) {
     for (size_t col = 0; col < 128; col++) {
-      field_big[row][col] = field_big[63-row][col];
+      center_big[row][col] = center_big[63-row][col];
     }
   }
 
   // mirror whole thing on bottom
   for (size_t row = 96; row < 128; row++) {
     for (size_t col = 0; col < 128; col++) {
-      field_big[row][col] = field_big[row-64][127-col];
+      center_big[row][col] = center_big[row-64][127-col];
+    }
+  }
+}
+
+
+
+
+/* Compute upper and left border into two fields (cache reasons) with full black tile on top left
+ */
+struct float_ptr_pair {
+  float * ptr1;
+  float * ptr2;
+};
+
+
+struct float_ptr_pair precompute_upper_border(const size_t niters) {
+  float row_buffer[128]; // holds the previous row
+  float row_buffer2[128]; // holds the previous row
+
+  float sum, cur, nxt, first, tmp;
+
+  float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
+
+  const size_t border_size = niters;
+
+  // Allocate both fields
+  // the vertical field is two times as big as the the last pixel of the border will be affected by the pixel at 2*border+1
+  const size_t vert_field_size = (((2 * border_size + 1) * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  // the horizontal field will be just the vertical field copied over once
+  const size_t horiz_field_size = ((border_size * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+
+  float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size,
+                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                               -1, 0);
+  float * const restrict horiz_field = (float *)((char *)vert_field + vert_field_size);
+  if (!vert_field) {
+    fprintf(stderr, "Memory Error\n");
+    exit(-1);
+  }
+
+  // setup chessboard pattern
+  for (size_t i = 0; i < 64; i++) { row_buffer[i] = 0.0f; }
+  for (size_t i = 64; i < 128; i++) { row_buffer[i] = 100.0f; }
+  for (size_t i = 0; i < 64; i++) { row_buffer2[i] = 100.0f; }
+  for (size_t i = 64; i < 128; i++) { row_buffer2[i] = 0.0f; }
+
+  for (size_t row = 0; row < 2 * border_size + 1; row++) {
+    for (size_t col = 0; col < 128; col++) {
+      vert_field[(row << 7) + col] = row & 64 ? row_buffer2[col] : row_buffer[col];
     }
   }
 
-  //// for debugging
-  //static float field_small2[66][66] = { 0 };
-  //for (size_t row = 0; row < 64; row++) {
-  //  for(size_t col = 0; col < 64; col++) {
-  //    field_small2[row+1][col+1] = field_small[row][col];
-  //  }
-  //}
-  //output_image("test.pgm", 64, 64,
-  //                66, 66, (float *)field_small2);
-//  static float field_big2[130][130] = { 0 };
-//  for (size_t row = 0; row < 128; row++) {
-//    for(size_t col = 0; col < 128; col++) {
-//      field_big2[row+1][col+1] = field_big[row][col];
-//    }
-//  }
-//  output_image("test_big.pgm", 128, 128,
-//                  130, 130, (float *)field_big2);
-}
 
+  prev_row_bak = row_buffer;
+  cur_row_bak = row_buffer2;
+
+  // start stencilin'
+  for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
+
+    for (size_t i = 0; i < 128; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
+    for (size_t row = 0; row < num_rows; row++) {
+      // backup current row
+      float * restrict cur_row = &vert_field[row<<7];
+
+      memcpy(cur_row_bak, cur_row, sizeof(row_buffer)); // TODO: do this while traversing the row, test speeds
+
+      // stencil over the horizontal
+      cur = cur_row[127];
+      nxt = cur_row[0];
+      first = nxt; // backup for last field
+      for (size_t col = 0; col < 127; col++) {
+        sum  = cur; // add previous field
+        sum += nxt * 6.0f; // add current field
+        cur  = nxt;
+        nxt  = cur_row[col + 1];
+        sum += nxt; // add next field
+
+        cur_row[col] = sum;
+      }
+      // special case for last tile
+      sum  = cur; // add previous field
+      sum += nxt * 6.0f; // add current field
+      cur  = nxt;
+      nxt  = first;
+      sum += nxt; // add next field
+      cur_row[127] = sum;
+
+
+      // row additions
+      // TODO: vecorize
+      // Add previous and following line
+      float * restrict nxt_row = cur_row + 128;
+      for (size_t col = 0; col < 128; col++) {
+        tmp = prev_row_bak[col] + nxt_row[col] + cur_row[col];
+        cur_row[col] = tmp * 0.1f;
+      }
+
+      // switch buffers
+      tmp2 = prev_row_bak;
+      prev_row_bak = cur_row_bak;
+      cur_row_bak = tmp2;
+    }
+  }
+
+  // create horizontal image, very expensive but better in the long run
+  for (size_t row = 0; row < 128; row++) {
+    float * restrict cur_row = &horiz_field[row * border_size];
+    for (size_t col = 0; col < border_size; col++) {
+      cur_row[col] = vert_field[(col<<7) + row];
+    }
+  }
+
+  //dump_field("test.pgm", 128, border_size, vert_field);
+
+  return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
+}
