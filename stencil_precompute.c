@@ -202,9 +202,9 @@ void stencil_border_part(size_t border_size,
 
   float sum, cur, nxt, first, tmp;
 
-  float row_buffer[64];
-  float row_buffer2[64];
-  float row_buffer3[64];
+  static float row_buffer[64]  __attribute__ ((aligned (128)));
+  static float row_buffer2[64] __attribute__ ((aligned (128)));
+  static float row_buffer3[64] __attribute__ ((aligned (128)));
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
