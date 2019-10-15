@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <sys/time.h>
 #include <sys/mman.h>
 
@@ -22,12 +23,18 @@ struct float_ptr_pair {
   float *ptr2;
 };
 
-extern void precompute_center(size_t niters); // defined in stencil_precomupte.c
-extern struct float_ptr_pair precompute_upper_border(size_t niters); // defined in stencil_precomupte.c
-extern void dump_field(char *fname, int nx, int ny, float *field); // defined in stencil_precomupte.c
 
-extern float center_small[64][64]; // defined in stencil_precomupte.c
-extern float center_big[128][128]; // defined in stencil_precomupte.c
+
+// all externs are defined in stencil_precomupte.c
+extern void precompute_center(size_t niters);
+extern struct float_ptr_pair precompute_upper_border(size_t niters);
+extern struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t length);
+
+extern void dump_field(char *fname, int nx, int ny, float *field);
+extern void print_row(float *row, size_t length);
+
+extern float center_small[64][64];
+extern float center_big[128][128];
 
 double wtime(void);
 
@@ -99,15 +106,30 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
 //      stencil_full(nx, ny, width, height, tmp_image, image);
 //    }
     // precompute stuff
+    struct float_ptr_pair p;
+
+    // result will be stored in center_big matrix
     precompute_center(niters);
-    struct float_ptr_pair p = precompute_upper_border(niters);
-    float *vert_border_field = p.ptr1;
-    float *horiz_border_field = p.ptr2;
+
+    p = precompute_upper_border(niters);
+
+    float *upper_border_field = p.ptr1;
+    float *left_border_field = p.ptr2;
+
+
+    // maybe we need to do some more calculations
+    if (nx % 64) {
+      p = precompute_lower_border(niters, nx);
+    }
+    float *right_border_field = p.ptr2;
+    if (ny % 64 && ny != nx) {
+      p = precompute_lower_border(niters, ny);
+    }
+    float *lower_border_field = p.ptr1;
 
 
     // fill center
     for (size_t row = border_size; row < ny-border_size; row++) {
-
       float * restrict cur_row_read = center_big[row & 0x7f];
       float * restrict cur_row_write = &image[(row+1) * width+1];
 
@@ -116,33 +138,10 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
       }
     }
 
-//    float *a = (float *) malloc(128 * border_size * sizeof(float));
-//    for (size_t row = 0; row < border_size; row++) {
-//      for (size_t col = 0; col < 128; col++) {
-//        a[row * 128 + col] = image[(row+1)*width + 256 + col + 1];
-//      }
-//    }
-//    dump_field("good_border.pgm", 128, border_size, a);
-
-
-//    float sum;
-//    for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
-//      for (size_t row = 0; row < num_rows; row++) {
-//        for (size_t col = 0; col < 2 * border_size; col++) {
-//          sum  = image[(row+1) * width + col + 1]*6.0f;
-//          sum += image[(row+1) * width + col];
-//          sum += image[(row+1) * width + col + 2];
-//          sum += image[(row) * width + col + 1];
-//          sum += image[(row+2) * width + col + 1];
-//          image[(row+1) * width + col + 1] = 0.1f * sum;
-//        }
-//      }
-//    }
-
     // fill upper border
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_write = &image[(row+1) * width + 1];
-      float * restrict cur_row_read = &vert_border_field[row << 7];
+      float * restrict cur_row_read = &upper_border_field[row << 7];
       for (size_t col = border_size; col < nx-border_size; col++) {
         cur_row_write[col] = cur_row_read[col % 128];
       }
@@ -151,13 +150,50 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
     // fill left border
     for (size_t row = border_size; row < ny-border_size; row++) {
       float * restrict cur_row_write = &image[(row+1) * width + 1];
-      float * restrict cur_row_read = &horiz_border_field[(row%128) * border_size];
+      float * restrict cur_row_read = &left_border_field[(row % 128) * border_size];
       for (size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
       }
     }
 
+    // TODO add new vars instead of the whole col - (...) thing
+    // fill lower border
+    if (lower_border_field == upper_border_field) {
+      for (size_t row = ny - border_size - 1; row < ny; row++) {
+        float * restrict cur_row_write = &image[(row+1) * width + 1];
+        float * restrict cur_row_read = &lower_border_field[(ny-row-1) << 7];
+        for (size_t col = border_size; col < nx-border_size; col++) {
+          cur_row_write[col] = cur_row_read[(127-col) % 128];
+        }
+      }
+    } else {
+      for (size_t row = ny - border_size - 1; row < ny; row++) {
+        float * restrict cur_row_write = &image[(row+1) * width + 1];
+        float * restrict cur_row_read = &lower_border_field[(row-(ny-border_size-1)) << 7];
+        for (size_t col = border_size; col < nx-border_size; col++) {
+          cur_row_write[col] = cur_row_read[col % 128];
+        }
+      }
+    }
 
+    // fill right border
+    if (right_border_field == left_border_field) {
+      for (size_t row = border_size; row < ny-border_size; row++) {
+        float * restrict cur_row_write = &image[(row+1) * width + 1];
+        float * restrict cur_row_read = &right_border_field[((127-row) % 128) * border_size];
+        for (size_t col = nx-border_size; col < nx; col++) {
+          cur_row_write[col] = cur_row_read[(border_size - (col - nx + border_size) - 1) % border_size];
+        }
+      }
+    } else {
+      for (size_t row = border_size; row < ny-border_size; row++) {
+        float * restrict cur_row_write = &image[(row+1) * width + 1];
+        float * restrict cur_row_read = &right_border_field[(row % 128) * border_size];
+        for (size_t col = nx-border_size-1; col < nx; col++) {
+          cur_row_write[col] = cur_row_read[col - (nx-border_size-1)];
+        }
+      }
+    }
 
   }
 }
