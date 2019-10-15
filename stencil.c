@@ -17,9 +17,9 @@ void init_image(const int nx, const int ny, const int width, const int height,
 void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 
-extern void stencil_four_tiles(size_t niters); // defined in stencil_four.c
-extern float field_small[64][64]; // defined in stencil_four.c
-extern float field_big[128][128]; // defined in stencil_four.c
+extern void stencil_four_tiles(size_t niters); // defined in stencil_precomupte.c
+extern float field_small[64][64]; // defined in stencil_precomupte.c
+extern float field_big[128][128]; // defined in stencil_precomupte.c
 
 double wtime(void);
 
