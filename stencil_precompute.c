@@ -74,8 +74,6 @@ void precompute_center(size_t niters) {
 
   for (size_t i = 0; i < niters; i++) {
     for (size_t row = 0; row < 63; row++) {
-      // backup current row
-
       cur = center_small[63-row][63];
       nxt = center_small[row][0];
       for(size_t col = 0; col < 63; col++) {
@@ -204,9 +202,9 @@ void stencil_border_part(size_t border_size,
 
   float sum, cur, nxt, first, tmp;
 
-  float row_buffer[128];
-  float row_buffer2[128];
-  float row_buffer3[128];
+  float row_buffer[64];
+  float row_buffer2[64];
+  float row_buffer3[64];
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
@@ -216,17 +214,15 @@ void stencil_border_part(size_t border_size,
   // start stencilin'
   for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
 
-    for (size_t i = 0; i < 128; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
+    for (size_t i = 0; i < 64; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
 
     for (size_t row = 0; row < num_rows; row++) {
-      // backup current row
       float * restrict cur_row = &vert_field[reverse ? (2 * border_size - row) << 7: row<<7];
 
       // stencil over the horizontal
-      cur = cur_row[127];
-      nxt = cur_row[0];
-      first = nxt; // backup for last field
-      for (size_t col = 0; col < 127; col++) {
+      cur = cur_row[0];
+      nxt = cur;
+      for (size_t col = 0; col < 64; col++) {
         sum  = cur; // add previous field
         cur_row_bak[col] = cur;
         sum += nxt * 6.0f; // add current field
@@ -240,16 +236,15 @@ void stencil_border_part(size_t border_size,
       sum  = cur; // add previous field
       sum += nxt * 6.0f; // add current field
       cur  = nxt;
-      nxt  = first;
+      nxt  = cur;
       sum += nxt; // add next field
-      cur_row[127] = sum;
+      row_buffer3[63] = sum;
 
 
       // row additions
-      // TODO: vecorize
       // Add previous and following line
-      float * restrict nxt_row = reverse ? cur_row - 128 : cur_row + 128;
-      for (size_t col = 0; col < 128; col++) {
+      float * restrict nxt_row = reverse ? cur_row - 64 : cur_row + 64;
+      for (size_t col = 0; col < 64; col++) {
         tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
         cur_row[col] = tmp * 0.1f;
       }
@@ -267,16 +262,16 @@ void stencil_border_part(size_t border_size,
 
 
 struct float_ptr_pair precompute_upper_border(const size_t niters) {
-  float row_buffer[128]; // holds the previous row
-  float row_buffer2[128]; // holds the previous row
+  float row_buffer[64]; // holds the previous row
+  float row_buffer2[64]; // holds the previous row
 
   const size_t border_size = niters;
 
   // Allocate both fields
   // the vertical field is two times as big as the the last pixel of the border will be affected by the pixel at 2*border+1
-  const size_t vert_field_size = (((2 * border_size + 1) * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  const size_t vert_field_size = (((2 * border_size + 1) * 64 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
   // the horizontal field will be just the vertical field copied over once
-  const size_t horiz_field_size = ((border_size * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  const size_t horiz_field_size = ((border_size * 64 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
 
   float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size,
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
@@ -288,29 +283,29 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
   }
 
   // setup chessboard pattern
-  for (size_t i =  0; i <  64; i++) { row_buffer[i] = 0.0f; }
-  for (size_t i = 64; i < 128; i++) { row_buffer[i] = 100.0f; }
-  for (size_t i =  0; i <  64; i++) { row_buffer2[i] = 100.0f; }
-  for (size_t i = 64; i < 128; i++) { row_buffer2[i] = 0.0f; }
+  for (size_t i =  0; i < 32; i++) { row_buffer[i]  =   0.0f; }
+  for (size_t i = 32; i < 64; i++) { row_buffer[i]  = 100.0f; }
+  for (size_t i =  0; i < 32; i++) { row_buffer2[i] = 100.0f; }
+  for (size_t i = 32; i < 64; i++) { row_buffer2[i] =   0.0f; }
 
   for (size_t row = 0; row < 2 * border_size + 1; row++) {
-    for (size_t col = 0; col < 128; col++) {
-      vert_field[(row << 7) + col] = row & 64 ? row_buffer2[col] : row_buffer[col];
+    for (size_t col = 0; col < 64; col++) {
+      vert_field[(row << 6) + col] = row & 32 ? row_buffer2[col] : row_buffer[col];
     }
   }
 
 
   stencil_border_part(border_size, vert_field, false);
 
-  // create horizontal image, very expensive but better in the long run
-  for (size_t row = 0; row < 128; row++) {
-    float * restrict cur_row = &horiz_field[row * border_size];
-    for (size_t col = 0; col < border_size; col++) {
-      cur_row[col] = vert_field[(col<<7) + row];
-    }
-  }
+//  // create horizontal image, very expensive but better in the long run
+//  for (size_t row = 0; row < 128; row++) {
+//    float * restrict cur_row = &horiz_field[row * border_size];
+//    for (size_t col = 0; col < border_size; col++) {
+//      cur_row[col] = vert_field[(col<<7) + row];
+//    }
+//  }
   
-  //dump_field("test.pgm", 128, border_size, vert_field);
+  dump_field("test.pgm", 64, border_size, vert_field);
 
   return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
 }
