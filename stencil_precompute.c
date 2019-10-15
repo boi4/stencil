@@ -198,13 +198,15 @@ struct float_ptr_pair {
 
 
 void stencil_border_part(size_t border_size,
-                         float * const restrict row_buffer,  // should be 128 long
-                         float * const restrict row_buffer2, // should be 128 long
                          float * const restrict vert_field, // should be 128 wide and 2*bordersize+1 long
                          bool reverse // wether to go from the bottom to the top
                          ) {
 
   float sum, cur, nxt, first, tmp;
+
+  float row_buffer[128];
+  float row_buffer2[128];
+  float row_buffer3[128];
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
@@ -232,7 +234,7 @@ void stencil_border_part(size_t border_size,
         nxt  = cur_row[col + 1];
         sum += nxt; // add next field
 
-        cur_row[col] = sum;
+        row_buffer3[col] = sum;
       }
       // special case for last tile
       sum  = cur; // add previous field
@@ -248,7 +250,7 @@ void stencil_border_part(size_t border_size,
       // Add previous and following line
       float * restrict nxt_row = reverse ? cur_row - 128 : cur_row + 128;
       for (size_t col = 0; col < 128; col++) {
-        tmp = prev_row_bak[col] + nxt_row[col] + cur_row[col];
+        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
         cur_row[col] = tmp * 0.1f;
       }
 
@@ -298,7 +300,7 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
   }
 
 
-  stencil_border_part(border_size, row_buffer, row_buffer2, vert_field, false);
+  stencil_border_part(border_size, vert_field, false);
 
   // create horizontal image, very expensive but better in the long run
   for (size_t row = 0; row < 128; row++) {
@@ -355,7 +357,7 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
   }
 
 
-  stencil_border_part(border_size, row_buffer, row_buffer2, vert_field, true);
+  stencil_border_part(border_size, vert_field, true);
   vert_field = vert_field + 128 * border_size;
 
   // create horizontal image, very expensive but better in the long run
@@ -366,7 +368,7 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
     }
   }
   
-  dump_field("test.pgm", 128, border_size, vert_field);
+  //dump_field("test.pgm", 128, border_size, vert_field);
 
   return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
 }
