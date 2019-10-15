@@ -94,10 +94,48 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
       }
     }
 
-    // boarders TODO
-    for (size_t i = 0; i < niters; i++) {
-      for (size_t row = 0; row < i; row++) {
-        
+    // borders TODO
+    float sum;
+//    for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
+//      for (size_t row = 0; row < num_rows; row++) {
+//        for (size_t col = 0; col < 2 * border_size; col++) {
+//          sum  = image[(row+1) * width + col + 1]*6.0f;
+//          sum += image[(row+1) * width + col];
+//          sum += image[(row+1) * width + col + 2];
+//          sum += image[(row) * width + col + 1];
+//          sum += image[(row+2) * width + col + 1];
+//          image[(row+1) * width + col + 1] = 0.1f * sum;
+//        }
+//      }
+//    }
+
+    // TODO: Add other edges here
+
+    size_t col_start = (2 * border_size + 127) & ~0x7f;
+    size_t col_end = col_start + 128;
+    for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
+      for (size_t row = 0; row < num_rows; row++) {
+        for (size_t col = col_start; col < col_end; col++) {
+          sum  = image[(row+1) * width + col + 1]*6.0f;
+
+          sum += image[(row+1) * width + col_start + (col-1)%128+1];
+          sum += image[(row+1) * width + col_start + (col + 1)%128+1];
+
+          sum += image[(row) * width + col + 1];
+          sum += image[(row+2) * width + col + 1];
+          image[(row+1) * width + col + 1] = 0.1f * sum;
+        }
+      }
+    }
+
+    for (size_t row = 0; row < border_size; row++) {
+      float * restrict cur_row_write = &image[(row+1) * width+1];
+      float * restrict cur_row_read = cur_row_write;
+      for (size_t col = 2 * border_size; col < col_start; col++) {
+        //cur_row_read[col] = cur_row_write[(col_start + col) % 128];
+      }
+      for (size_t col = col_end; col < nx-border_size; col++) {
+        cur_row_write[col] = cur_row_read[col_start + (col % 128)];
       }
     }
 
