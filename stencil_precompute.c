@@ -202,7 +202,7 @@ void stencil_border_part(size_t border_size,
                          ) {
 
   float *vert_field = __builtin_assume_aligned(vert_field_arg, 128);
-  float sum, cur, nxt, first, tmp;
+  float tmp;
 
   static float row_buffer[64]  __attribute__ ((aligned (128)));
   static float row_buffer2[64] __attribute__ ((aligned (128)));
@@ -222,26 +222,13 @@ void stencil_border_part(size_t border_size,
       float * restrict cur_row = &vert_field[reverse ? (2 * border_size - row) << 7: row<<7];
 
       // stencil over the horizontal
-      cur = cur_row[0];
-      nxt = cur;
-      for (size_t col = 0; col < 64; col++) {
-        sum  = cur; // add previous field
-        cur_row_bak[col] = cur;
-        sum += nxt * 6.0f; // add current field
-        cur  = nxt;
-        nxt  = cur_row[col + 1];
-        sum += nxt; // add next field
+      memcpy(cur_row_bak, cur_row, 64);
 
-        row_buffer3[col] = sum;
+      cur_row[ 0] = cur_row_bak[ 0] * 7.0f + cur_row_bak[ 1];
+      cur_row[63] = cur_row_bak[63] * 7.0f + cur_row_bak[62];
+      for (size_t col = 1; col < 63; col++) {
+        cur_row[col] = cur_row_bak[col] * 6.0f + cur_row_bak[col+1] + cur_row_bak[col-1];
       }
-      // special case for last tile
-      sum  = cur; // add previous field
-      sum += nxt * 6.0f; // add current field
-      cur  = nxt;
-      nxt  = cur;
-      sum += nxt; // add next field
-      row_buffer3[63] = sum;
-
 
       // row additions
       // Add previous and following line
@@ -365,7 +352,7 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
     }
   }
   
-  //dump_field("test.pgm", 128, border_size, vert_field);
+  dump_field("test.pgm", 128, border_size, vert_field);
 
   return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
 }
