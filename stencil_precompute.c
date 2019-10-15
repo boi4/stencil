@@ -194,12 +194,14 @@ struct float_ptr_pair {
 };
 
 
+typedef double aligned_float __attribute__((aligned (128)));
 
 void stencil_border_part(size_t border_size,
-                         float * const restrict vert_field, // should be 128 wide and 2*bordersize+1 long
+                         float * const restrict vert_field_arg,
                          bool reverse // wether to go from the bottom to the top
                          ) {
 
+  float *vert_field = __builtin_assume_aligned(vert_field_arg, 128);
   float sum, cur, nxt, first, tmp;
 
   static float row_buffer[64]  __attribute__ ((aligned (128)));
