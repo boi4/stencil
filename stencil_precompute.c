@@ -75,12 +75,12 @@ void precompute_center(size_t niters) {
   for (size_t i = 0; i < niters; i++) {
     for (size_t row = 0; row < 63; row++) {
       // backup current row
-      memcpy(cur_row_bak, center_small[row], sizeof(row_buffer)); // TODO: do this while traversing the row
 
       cur = center_small[63-row][63];
       nxt = center_small[row][0];
       for(size_t col = 0; col < 63; col++) {
         sum  = cur; // add previous field
+        cur_row_bak[col] = cur;
         sum += nxt * 6.0f; // add current field
         cur  = nxt;
         nxt  = center_small[row][col+1];
@@ -220,14 +220,13 @@ void stencil_border_part(size_t border_size,
       // backup current row
       float * restrict cur_row = &vert_field[reverse ? (2 * border_size - row) << 7: row<<7];
 
-      memcpy(cur_row_bak, cur_row, 128 * sizeof(float)); // TODO: do this while traversing the row, test speeds
-
       // stencil over the horizontal
       cur = cur_row[127];
       nxt = cur_row[0];
       first = nxt; // backup for last field
       for (size_t col = 0; col < 127; col++) {
         sum  = cur; // add previous field
+        cur_row_bak[col] = cur;
         sum += nxt * 6.0f; // add current field
         cur  = nxt;
         nxt  = cur_row[col + 1];
