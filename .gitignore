@@ -3,3 +3,4 @@ stencil
 *.pgm
 stencil.out
 out/*
+.gdb_history
