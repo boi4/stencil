@@ -128,15 +128,15 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
     float *lower_border_field = p.ptr1;
 
 
-    // fill center
-    for (size_t row = border_size; row < ny-border_size; row++) {
-      float * restrict cur_row_read = center_big[row & 0x7f];
-      float * restrict cur_row_write = &image[(row+1) * width+1];
+ //   // fill center
+ //   for (size_t row = border_size; row < ny-border_size; row++) {
+ //     float * restrict cur_row_read = center_big[row & 0x7f];
+ //     float * restrict cur_row_write = &image[(row+1) * width+1];
 
-      for(size_t col = border_size; col < nx-border_size; col++) {
-        cur_row_write[col] = cur_row_read[col & 0x7f];
-      }
-    }
+ //     for(size_t col = border_size; col < nx-border_size; col++) {
+ //       cur_row_write[col] = cur_row_read[col & 0x7f];
+ //     }
+ //   }
 
     // fill upper border
     for (size_t row = 0; row < border_size; row++) {
@@ -149,8 +149,8 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
 
     // fill left border
     for (size_t row = border_size; row < ny-border_size; row++) {
-      float * restrict cur_row_write = &image[(row+1) * width + 1];
-      float * restrict cur_row_read = &left_border_field[(row % 128) * border_size];
+      float * restrict cur_row_write = image + ((row+1) * width + 1);
+      float * restrict cur_row_read = left_border_field + ((row % 128) * border_size);
       for (size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
       }

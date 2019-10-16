@@ -229,18 +229,12 @@ void stencil_border_part(size_t border_size,
       row_buffer3[63] = cur_row[63] * 7.0f + cur_row[62];
       
       memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
-      //cur_row[ 0] = cur_row_bak[ 0] * 7.0f + cur_row_bak[ 1];
-      //for (size_t col = 1; col < 63; col++) {
-      //  cur_row[col] = cur_row_bak[col] * 6.0f + cur_row_bak[col+1] + cur_row_bak[col-1];
-      //}
-      //cur_row[63] = cur_row_bak[63] * 7.0f + cur_row_bak[62];
 
       // row additions
       // Add previous and following line
       float * restrict nxt_row = reverse ? cur_row - 64 : cur_row + 64;
       for (size_t col = 0; col < 64; col++) {
         tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
-        //tmp = prev_row_bak[col] + nxt_row[col] + cur_row[col];
         cur_row[col] = tmp * 0.1f;
       }
 
@@ -264,14 +258,18 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
   // Allocate both fields
   // the vertical field is two times as big as the the last pixel of the border will be affected by the pixel at 2*border+1
-  const size_t vert_field_size = (((2 * border_size + 1) * 64 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  const size_t vert_field_size = (((2 * border_size + 1) * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
   // the horizontal field will be just the vertical field copied over once
-  const size_t horiz_field_size = ((border_size * 64 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  const size_t horiz_field_size = ((border_size * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
+  const size_t vert_full_field_size = ((border_size * 128 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
 
-  float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size,
-                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+  float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size + 2 * vert_full_field_size,
+                                                   PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
   float * const restrict horiz_field = (float *)((char *)vert_field + vert_field_size);
+  float * const restrict vert_full_field = (float *)((char*)horiz_field + horiz_field_size);
+  float * const restrict horiz_full_field = (float *)((char*)vert_full_field + vert_full_field_size);
+
   if (!vert_field) {
     fprintf(stderr, "Memory Error\n");
     exit(-1);
@@ -285,24 +283,42 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
   for (size_t row = 0; row < 2 * border_size + 1; row++) {
     for (size_t col = 0; col < 64; col++) {
-      vert_field[(row << 6) + col] = row & 32 ? row_buffer2[col] : row_buffer[col];
+      vert_field[(row << 6) + col] = row & 64 ? row_buffer2[col] : row_buffer[col];
     }
   }
 
 
   stencil_border_part(border_size, vert_field, false);
 
-//  // create horizontal image, very expensive but better in the long run
-//  for (size_t row = 0; row < 128; row++) {
-//    float * restrict cur_row = &horiz_field[row * border_size];
-//    for (size_t col = 0; col < border_size; col++) {
-//      cur_row[col] = vert_field[(col<<7) + row];
-//    }
-//  }
+  // create horizontal image, expensive but better in the long run
+  for (size_t row = 0; row < 64; row++) {
+    float * restrict cur_row = &horiz_field[row * border_size];
+    for (size_t col = 0; col < border_size; col++) {
+      cur_row[col] = vert_field[(col<<6) + row];
+    }
+  }
   
-  dump_field("test.pgm", 64, border_size, vert_field);
+  
+  // fill full images
+  for (size_t row = 0; row < border_size; row++) {
+    float * restrict cur_row_write = vert_full_field + (row<<7);
+    for (size_t col = 0; col < 128; col++) {
+      cur_row_write[col] = vert_field[(row<<6) + (col < 32 ? 31-col : (col < 96 ? col-32: 159-col))];
+    }
+  }
 
-  return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
+  // fill full images
+  for (size_t row = 0; row < 128; row++) {
+    float * restrict cur_row_write = horiz_full_field + (row*border_size);
+    for (size_t col = 0; col < border_size; col++) {
+      cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
+    }
+  }
+
+  //dump_field("test.pgm", border_size, 128, horiz_full_field);
+  //dump_field("test.pgm", 128, border_size, vert_full_field);
+
+  return (struct float_ptr_pair) {.ptr1 = vert_full_field, .ptr2 = horiz_full_field};
 }
 
 
@@ -326,7 +342,7 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
   const size_t horiz_field_size = ((border_size * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
 
   float * restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size,
-                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                               PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
   float * const restrict horiz_field = (float *)((char *)vert_field + vert_field_size);
   if (!vert_field) {
@@ -358,7 +374,7 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
     }
   }
   
-  dump_field("test.pgm", 128, border_size, vert_field);
+  //dump_field("test.pgm", 128, border_size, vert_field);
 
   return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
 }
