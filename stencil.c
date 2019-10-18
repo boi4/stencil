@@ -93,6 +93,8 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
              float* image, float* tmp_image) {
 
   const size_t border_size = niters;
+  const size_t border_size_padding_bits = 32 - __builtin_clz (border_size-1); // round up to the next power of 2
+  const size_t border_size_with_padding = 1 << border_size_padding_bits;
 
   if (nx < 2 * border_size || ny < 2 * border_size) { // we cannot optimize in this case
     for (int t = 0; t < niters/2; ++t) { // TODO: find different solution
@@ -149,7 +151,7 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
     // fill left border
     for (size_t row = border_size; row < ny-border_size; row++) {
       float * restrict cur_row_write = image + ((row+1) * width + 1);
-      float * restrict cur_row_read = left_border_field + ((row % 128) * border_size);
+      float * restrict cur_row_read = left_border_field + (((row % 128) << border_size_padding_bits));
       for (size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
       }
@@ -176,18 +178,19 @@ void stencil(const int nx, const int ny, const int width, const int height, cons
     }
 
     // fill right border
+    const int bit_field = border_size_with_padding - 1;
     if (right_border_field == left_border_field) {
       for (size_t row = border_size; row < ny-border_size; row++) {
-        float * restrict cur_row_write = &image[(row+1) * width + 1];
-        float * restrict cur_row_read = &right_border_field[((127-row) % 128) * border_size];
+        float * restrict cur_row_write = image + ((row+1) * width + 1);
+        float * restrict cur_row_read = right_border_field + (((127-row) % 128) << border_size_padding_bits);
         for (size_t col = nx-border_size; col < nx; col++) {
-          cur_row_write[col] = cur_row_read[(border_size - (col - nx + border_size) - 1) % border_size];
+          cur_row_write[col] = cur_row_read[(border_size - (col - nx + border_size) - 1) & bit_field];
         }
       }
     } else { // TODO
       for (size_t row = border_size; row < ny-border_size; row++) {
         float * restrict cur_row_write = &image[(row+1) * width + 1];
-        float * restrict cur_row_read = &right_border_field[(row % 128) * border_size];
+        float * restrict cur_row_read = &right_border_field[(row % 128) << border_size_padding_bits];
         for (size_t col = nx-border_size-1; col < nx; col++) {
           cur_row_write[col] = cur_row_read[col - (nx-border_size-1)];
         }

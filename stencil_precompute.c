@@ -281,15 +281,16 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
   float row_buffer2[64]; // holds the previous row
 
   const size_t border_size = niters;
+  const size_t border_size_padding_bits = 32 - __builtin_clz (border_size-1); // round up to the next power of 2
+  const size_t border_size_with_padding = 1 << border_size_padding_bits;
 
-  // Allocate both fields
-  // the vertical field is two times as big as the the last pixel of the border will be affected by the pixel at 2*border+1
-  const size_t vert_field_size = (((2 * border_size + 1) * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
-  // the horizontal field will be just the vertical field copied over once
-  const size_t horiz_field_size = ((border_size * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
-  const size_t vert_full_field_size = ((border_size * 128 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
+  // Allocate all fields
+  const size_t vert_field_size       = (((2 * border_size + 1) * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
+  const size_t horiz_field_size      = ((border_size_with_padding * 64 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
+  const size_t vert_full_field_size  = ((border_size * 128 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
+  const size_t horiz_full_field_size = ((border_size_with_padding * 128 * sizeof(float)) + 0xfff) & (~(unsigned long)0xfff);
 
-  float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size + 2 * vert_full_field_size,
+  float * const restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size + vert_full_field_size + horiz_full_field_size,
                                                    PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
   float * const restrict horiz_field = (float *)((char *)vert_field + vert_field_size);
@@ -318,7 +319,7 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
   // create horizontal image, expensive but better in the long run
   for (size_t row = 0; row < 64; row++) {
-    float * restrict cur_row = &horiz_field[row * border_size];
+    float * restrict cur_row = horiz_field + (row << border_size_padding_bits);
     for (size_t col = 0; col < border_size; col++) {
       cur_row[col] = vert_field[(col<<6) + row];
     }
@@ -335,12 +336,13 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
   // fill full images
   for (size_t row = 0; row < 128; row++) {
-    float * restrict cur_row_write = horiz_full_field + (row*border_size);
+    float * restrict cur_row_write = horiz_full_field + (row << border_size_padding_bits);
     for (size_t col = 0; col < border_size; col++) {
-      cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
+      cur_row_write[col] = horiz_field[((row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) << border_size_padding_bits) + col];
     }
   }
 
+  dump_field("test.pgm", border_size_with_padding, 128, horiz_full_field);
   //dump_field("test.pgm", border_size, 128, horiz_full_field);
   //dump_field("test.pgm", 128, border_size, vert_full_field);
 
