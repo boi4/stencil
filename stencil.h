@@ -6,7 +6,13 @@
 // Define output file name
 #define OUTPUT_FILE "stencil.pgm"
 #define WHITE_FLOAT 100.0f
+#define BORDER_FIELD_ALIGNMENT 0x80 // should be at least 16 for vectorization
 
+
+struct float_ptr_pair {
+  float * ptr1;
+  float * ptr2;
+};
 
 
 #endif
