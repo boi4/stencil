@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <sys/mman.h>
 
+#include "stencil.h"
 
 extern void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
@@ -43,13 +44,14 @@ float center_big[128][128]; // will be computed out of center_small
 void precompute_center(size_t niters) {
   static float row_buffer[64]; // holds the previous row
   static float row_buffer2[64]; // holds the previous row
+  static float row_buffer3[64]; // holds the previous row
 
-  float sum, cur, nxt, tmp;
+  float tmp;
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
   // create chessboard pattern
   for (size_t i = 0; i < 32; i++) {
-    row_buffer[i] = 100.0f;
+    row_buffer[i] = WHITE_FLOAT;
   }
   for (size_t i = 32; i < 64; i++) {
     row_buffer[i] = 0.0f;
@@ -61,45 +63,32 @@ void precompute_center(size_t niters) {
     row_buffer[i] = 0.0f;
   }
   for (size_t i = 32; i < 64; i++) {
-    row_buffer[i] = 100.0f;
+    row_buffer[i] = WHITE_FLOAT;
   }
   for (size_t i = 0; i < 32; i++) {
       memcpy(center_small[i], row_buffer, sizeof(row_buffer));
   }
   // we first do the lower half because we don't have to init row_buffer again
 
-
   prev_row_bak = row_buffer;
   cur_row_bak = row_buffer2;
 
   for (size_t i = 0; i < niters; i++) {
     for (size_t row = 0; row < 63; row++) {
-      cur = center_small[63-row][63];
-      nxt = center_small[row][0];
-      for(size_t col = 0; col < 63; col++) {
-        sum  = cur; // add previous field
-        cur_row_bak[col] = cur;
-        sum += nxt * 6.0f; // add current field
-        cur  = nxt;
-        nxt  = center_small[row][col+1];
-        sum += nxt; // add next field
-        center_small[row][col] = sum; // TODO: maybe write this into other field
+      float * restrict cur_row = center_small[row];
+      row_buffer3[ 0] = center_small[63-row][63] + cur_row[ 0] * 6.0f + cur_row[ 1]; // TODO: first value will be wrong
+      for (size_t col = 1; col < 63; col++) {
+        row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
-      // special case for last column to avoid some modulo
-      sum  = cur; // add previous field
-      sum += nxt * 6.0f; // add current field
-      cur  = nxt;
-      nxt  = center_small[63-row][0]; // TODO: this may use a wrong value
-      sum += nxt; // add next field
-      center_small[row][63] = sum;
+      row_buffer3[63] = center_small[63-row][0] + cur_row[63]* 6.0f + cur_row[62]; // TODO: first value will be wrong
 
+      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
 
       // row additions
-      // TODO: vecorize
       // Add previous and following line
-      float * restrict nxt_row = center_small[row + 1];
+      float * restrict nxt_row = cur_row + 64;
       for (size_t col = 0; col < 64; col++) {
-        tmp = prev_row_bak[col] + nxt_row[col] + center_small[row][col];
+        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
         center_small[row][col] = tmp * 0.1f;
       }
 
@@ -110,29 +99,18 @@ void precompute_center(size_t niters) {
     }
 
     // special case last row
-    cur = center_small[0][63];
-    nxt = center_small[63][0];
-    for(size_t col = 0; col < 63; col++) {
-      sum  = cur; // add previous field
-      sum += nxt * 6.0f; // add current field
-      cur  = nxt;
-      nxt  = center_small[63][col+1];
-      sum += nxt; // add next field
-      center_small[63][col] = sum;
+    float * restrict cur_row = center_small[63];
+    row_buffer3[ 0] = center_small[0][63] + cur_row[ 0] * 6.0f + cur_row[ 1]; // TODO: first value will be wrong
+    for (size_t col = 1; col < 63; col++) {
+      row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
     }
-    // special case to avoid some modulo
-    sum  = cur; // add previous field
-    sum += nxt * 6.0f; // add current field
-    cur  = nxt;
-    nxt  = center_small[0][0]; // TODO: this will use a wrong value
-    sum += nxt; // add next field
-    center_small[63][63] = sum;
+    row_buffer3[63] = center_small[0][0] + cur_row[63]* 6.0f + cur_row[62]; // TODO: first value will be wrong
 
     // TODO: vectorize
     // Add previous and following line
     float * restrict nxt_row = center_small[0];
     for (size_t col = 0; col < 64; col++) {
-      tmp = prev_row_bak[col] + nxt_row[63-col] + center_small[63][col];
+      tmp = prev_row_bak[col] + nxt_row[63-col] + row_buffer3[col];
       center_small[63][col] = tmp * 0.1f;
     }
 
@@ -181,59 +159,52 @@ void precompute_center(size_t niters) {
       center_big[row][col] = center_big[row-64][127-col];
     }
   }
+
+  //dump_field("test.pgm", 64, 64, center_small[0]);
 }
 
 
-
-
-/* Compute upper and left border into two fields (cache reasons) with full black tile on top left
+/* We stencil only a field of width 32, only containing half of a block, as the rest can be computed by mirroring or additions
  */
-struct float_ptr_pair {
-  float * ptr1;
-  float * ptr2;
-};
-
-
-typedef double aligned_float __attribute__((aligned (128)));
-
 void stencil_border_part(size_t border_size,
-                         float * const restrict vert_field_arg,
+                         float * const restrict vert_field_arg, // should be 32 floats wide and 2 * border_size + 1 floats high
                          bool reverse // wether to go from the bottom to the top
                          ) {
 
   float * restrict vert_field = __builtin_assume_aligned(vert_field_arg, 128);
   float tmp;
 
-  static float row_buffer[64]  __attribute__ ((aligned (128)));
-  static float row_buffer2[64] __attribute__ ((aligned (128)));
-  static float row_buffer3[64] __attribute__ ((aligned (128)));
+  static float row_buffer1[32] __attribute__ ((aligned (128)));
+  static float row_buffer2[32] __attribute__ ((aligned (128)));
+  static float row_buffer3[32] __attribute__ ((aligned (128))); // used for computation results
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
-  prev_row_bak = row_buffer;
+  prev_row_bak = row_buffer1;
   cur_row_bak = row_buffer2;
 
   // start stencilin'
   for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
 
-    for (size_t i = 0; i < 64; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
+    memset(prev_row_bak, 0, 32 * sizeof(float)); // first 'invisible' row is black
 
     for (size_t row = 0; row < num_rows; row++) {
-      float * restrict cur_row = vert_field + (reverse ? (2 * border_size - row) << 6: row << 6);
+      float * restrict cur_row = vert_field + (reverse ? (2 * border_size - row) << 5: row << 5);
 
       // stencil over the horizontal
-      row_buffer3[ 0] = cur_row[ 0] * 7.0f + cur_row[ 1];
-      for (size_t col = 1; col < 63; col++) {
+      tmp = cur_row[0];
+      row_buffer3[0] = (WHITE_FLOAT - tmp) + tmp * 6.0f + cur_row[1]; // special case last field
+      for (size_t col = 1; col < 31; col++) {
         row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
-      row_buffer3[63] = cur_row[63] * 7.0f + cur_row[62];
+      row_buffer3[31] = cur_row[31] * 7.0f + cur_row[30]; // special case first field
       
-      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
+      memcpy(cur_row_bak, cur_row, 32 * sizeof(float));
 
       // row additions
       // Add previous and following line
-      float * restrict nxt_row = reverse ? cur_row - 64 : cur_row + 64;
-      for (size_t col = 0; col < 64; col++) {
+      float * restrict nxt_row = reverse ? cur_row - 32 : cur_row + 32;
+      for (size_t col = 0; col < 32; col++) {
         tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
         cur_row[col] = tmp * 0.1f;
       }
@@ -247,12 +218,66 @@ void stencil_border_part(size_t border_size,
 }
 
 
+//void stencil_edge_part(size_t border_size, float * const restrict left_upper_field_arg,) {
+//
+//  float * restrict left_upper_field = __builtin_assume_aligned(left_upper_field_arg, 128);
+//  float tmp;
+//
+//  static float row_buffer[64]  __attribute__ ((aligned (128)));
+//  static float row_buffer2[64] __attribute__ ((aligned (128)));
+//  static float row_buffer3[64] __attribute__ ((aligned (128)));
+//
+//  float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
+//
+//  prev_row_bak = row_buffer;
+//  cur_row_bak = row_buffer2;
+//
+//  // start stencilin'
+//  for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
+//
+//    for (size_t i = 0; i < 64; i++) { prev_row_bak[i] = 0.0f; } // simulate first row, which is black
+//
+//    for (size_t row = 0; row < num_rows; row++) {
+//      float * restrict cur_row = vert_field + (reverse ? (2 * border_size - row) << 6: row << 6);
+//
+//      // stencil over the horizontal
+//      row_buffer3[ 0] = cur_row[ 0] * 7.0f + cur_row[ 1];
+//      for (size_t col = 1; col < 63; col++) {
+//        row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
+//      }
+//      row_buffer3[63] = cur_row[63] * 7.0f + cur_row[62];
+//      
+//      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
+//
+//      // row additions
+//      // Add previous and following line
+//      float * restrict nxt_row = reverse ? cur_row - 64 : cur_row + 64;
+//      for (size_t col = 0; col < 64; col++) {
+//        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
+//        cur_row[col] = tmp * 0.1f;
+//      }
+//
+//      // switch buffers
+//      tmp2 = prev_row_bak;
+//      prev_row_bak = cur_row_bak;
+//      cur_row_bak = tmp2;
+//    }
+//  }
+//}
 
 
+
+
+
+/* Compute upper and left border into two fields (cache reasons) with full black tile on top left
+ */
+struct float_ptr_pair {
+  float * ptr1;
+  float * ptr2;
+};
 
 struct float_ptr_pair precompute_upper_border(const size_t niters) {
-  float row_buffer[64]; // holds the previous row
-  float row_buffer2[64]; // holds the previous row
+  static float black_white_buffer[64];
 
   const size_t border_size = niters;
 
@@ -275,46 +300,48 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
     exit(-1);
   }
 
-  // setup chessboard pattern
-  for (size_t i =  0; i < 32; i++) { row_buffer[i]  =   0.0f; }
-  for (size_t i = 32; i < 64; i++) { row_buffer[i]  = 100.0f; }
-  for (size_t i =  0; i < 32; i++) { row_buffer2[i] = 100.0f; }
-  for (size_t i = 32; i < 64; i++) { row_buffer2[i] =   0.0f; }
+  // setup white buffer
+  for (size_t i = 32; i < 64; i++) { black_white_buffer[i] = WHITE_FLOAT; }
 
+  // setup pattern
   for (size_t row = 0; row < 2 * border_size + 1; row++) {
-    for (size_t col = 0; col < 64; col++) {
-      vert_field[(row << 6) + col] = row & 64 ? row_buffer2[col] : row_buffer[col];
+    float * restrict row_read = black_white_buffer + ((row & 0x40)>>1);
+    //printf("%d\n", (row & 0x40)>>1);
+    float * restrict row_write = vert_field + (row << 5);
+    for (size_t col = 0; col < 32; col++) {
+      row_write[col] = row_read[col];
     }
   }
 
 
   stencil_border_part(border_size, vert_field, false);
 
-  // create horizontal image, expensive but better in the long run
-  for (size_t row = 0; row < 64; row++) {
-    float * restrict cur_row = &horiz_field[row * border_size];
-    for (size_t col = 0; col < border_size; col++) {
-      cur_row[col] = vert_field[(col<<6) + row];
-    }
-  }
-  
-  
-  // fill full images
-  for (size_t row = 0; row < border_size; row++) {
-    float * restrict cur_row_write = vert_full_field + (row<<7);
-    for (size_t col = 0; col < 128; col++) {
-      cur_row_write[col] = vert_field[(row<<6) + (col < 32 ? 31-col : (col < 96 ? col-32: 159-col))];
-    }
-  }
+ // // create horizontal image, expensive but better in the long run
+ // for (size_t row = 0; row < 64; row++) {
+ //   float * restrict cur_row = &horiz_field[row * border_size];
+ //   for (size_t col = 0; col < border_size; col++) {
+ //     cur_row[col] = vert_field[(col<<6) + row];
+ //   }
+ // }
+ // 
+ // 
+ // // fill full images
+ // for (size_t row = 0; row < border_size; row++) {
+ //   float * restrict cur_row_write = vert_full_field + (row<<7);
+ //   for (size_t col = 0; col < 128; col++) {
+ //     cur_row_write[col] = vert_field[(row<<6) + (col < 32 ? 31-col : (col < 96 ? col-32: 159-col))];
+ //   }
+ // }
 
-  // fill full images
-  for (size_t row = 0; row < 128; row++) {
-    float * restrict cur_row_write = horiz_full_field + (row*border_size);
-    for (size_t col = 0; col < border_size; col++) {
-      cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
-    }
-  }
+ // // fill full images
+ // for (size_t row = 0; row < 128; row++) {
+ //   float * restrict cur_row_write = horiz_full_field + (row*border_size);
+ //   for (size_t col = 0; col < border_size; col++) {
+ //     cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
+ //   }
+ // }
 
+  dump_field("test.pgm", 32, border_size, vert_field);
   //dump_field("test.pgm", border_size, 128, horiz_full_field);
   //dump_field("test.pgm", 128, border_size, vert_full_field);
 
@@ -323,6 +350,7 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
 
 
+// TODO
 /*
  * This function computes the lower or the right border. It returns a float ptr struct.
  * ptr1 is lower border in vertical, ptr2 is right border in horizontal
@@ -352,8 +380,8 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
 
   // setup chessboard pattern
   for (size_t i =  0; i <  64; i++) { row_buffer[i] = 0.0f; }
-  for (size_t i = 64; i < 128; i++) { row_buffer[i] = 100.0f; }
-  for (size_t i =  0; i <  64; i++) { row_buffer2[i] = 100.0f; }
+  for (size_t i = 64; i < 128; i++) { row_buffer[i] = WHITE_FLOAT; }
+  for (size_t i =  0; i <  64; i++) { row_buffer2[i] = WHITE_FLOAT; }
   for (size_t i = 64; i < 128; i++) { row_buffer2[i] = 0.0f; }
 
   for (size_t row = 0; row < 2 * border_size + 1; row++) {
@@ -378,6 +406,3 @@ struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t 
 
   return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
 }
-
-
-

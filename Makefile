@@ -22,6 +22,7 @@ out/o3: out/stencil.o out/stencil_precompute.o
 out/o3debug: out/stencil.o out/stencil_precompute.o
 	gcc -std=gnu99 -Wall -O3 -ggdb3 $^ -o $@ ${LDFLAGS}
 
+#out/ofastdebug: out/stencil.o stencil_precompute2.c
 out/ofastdebug: out/stencil.o out/stencil_precompute.o
 	gcc -std=gnu99 -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
 
