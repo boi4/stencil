@@ -234,6 +234,7 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
   }
 
 
+  // TODO: do this without a buffer
   // setup chessboard pattern
   for (size_t i = 32; i < 64; i++) { row_buffer[i]  = WHITE_FLOAT; }
 
@@ -241,6 +242,7 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
   for (size_t row = 0; row < rowlim; row++) {
     float * restrict cur_row = vert_field + (row << 6);
 
+    // TODO: unroll
     for (size_t col = 0; col < 64; col++) {
        cur_row[col] = (row + (reverse ? (offset-border_size) : offset)) & 64 ? row_buffer[63-col] : row_buffer[col];
     }
@@ -265,6 +267,7 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
   for (size_t row = 0; row < border_size; row++) {
     float * restrict cur_row_write = vert_full_field + (row<<7);
     for (size_t col = 0; col < 128; col++) {
+      // TODO: unroll
       cur_row_write[col] = vert_field_ptr[(row<<6) + (col < 32 ? 31-col : (col < 96 ? col-32: 159-col))];
     }
   }
@@ -273,12 +276,13 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
   for (size_t row = 0; row < 128; row++) {
     float * restrict cur_row_write = horiz_full_field + (row << border_size_padding_bits);
     for (size_t col = 0; col < border_size; col++) {
+      // TODO: unroll
       cur_row_write[col] = horiz_field[((row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) << border_size_padding_bits) + col];
     }
   }
 
   //dump_field("test.pgm", border_size_with_padding, 128, horiz_full_field);
-  dump_field("test.pgm", 128, border_size, vert_full_field);
+  //dump_field("test.pgm", 128, border_size, vert_full_field);
   //dump_field("test.pgm", border_size_with_padding, 64, horiz_field);
   //dump_field("test.pgm", 64, 2 * border_size - 1, vert_field);
 
@@ -287,63 +291,106 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 
 
 
-// TODO
 /*
- * This function computes the lower or the right border. It returns a float ptr struct.
- * ptr1 is lower border in vertical, ptr2 is right border in horizontal
- * length should be the either the width or the heigth of the whole chessboard (without the invinsible borders)
- * if width and height are equal, one function call should be enough (could be optimized)
+ * black: whether the top-left tile is black
+ * returns a 2*niters x 2*niters big field, but only assures, that the top left niters x niters is correct
  */
-struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t length) {
-  float row_buffer[128]; // holds the previous row
-  float row_buffer2[128]; // holds the previous row
-
+float *precompute_symmetric_edge(const size_t niters, bool black) {
   const size_t border_size = niters;
+  const size_t width = 2 * border_size - 1;
 
-  // Allocate both fields
-  // the vertical field is two times as big as the the last pixel of the border will be affected by the pixel at 2*border+1
-  const size_t vert_field_size = (((2 * border_size + 1) * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
-  // the horizontal field will be just the vertical field copied over once
-  const size_t horiz_field_size = ((border_size * 128 * sizeof(float)) + 0x1000) & (~(unsigned long)0xfff);
+  static float * restrict row_buffer1;
+  static float * restrict row_buffer2;
+  static float * restrict row_buffer3;
+  static void * all_ptr = NULL;
 
-  float * restrict vert_field = (float *)mmap(NULL, vert_field_size + horiz_field_size,
-                               PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS,
-                               -1, 0);
-  float * const restrict horiz_field = (float *)((uint8_t *)vert_field + vert_field_size);
-  if (!vert_field) {
-    fprintf(stderr, "Memory Error\n");
+  float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
+  float tmp;
+
+  float * const restrict field       = (float *)__builtin_assume_aligned(mmap(NULL,
+                                                              width * width * sizeof(float),
+                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0),BORDER_FIELD_ALIGNMENT);
+
+  if (!field) {
+    fprintf(stderr, "Memory Error %d\n", __LINE__);
     exit(-1);
   }
 
+  if (!row_buffer1) {
+    if (posix_memalign(&all_ptr, 0x100, 3*width*sizeof(float))) { // will never be freed
+      fprintf(stderr, "Memory Error %d\n", __LINE__);
+      exit(-1);
+    }
+    row_buffer1 = all_ptr;
+    row_buffer2 = (float *)all_ptr + width;
+    row_buffer3 = row_buffer2 + width;
+  }
+
   // setup chessboard pattern
-  for (size_t i =  0; i <  64; i++) { row_buffer[i] = 0.0f; }
-  for (size_t i = 64; i < 128; i++) { row_buffer[i] = WHITE_FLOAT; }
-  for (size_t i =  0; i <  64; i++) { row_buffer2[i] = WHITE_FLOAT; }
-  for (size_t i = 64; i < 128; i++) { row_buffer2[i] = 0.0f; }
+  for (size_t row = 0; row < width; row++) {
+    float * restrict cur_row = field + (row * width);
 
-  for (size_t row = 0; row < 2 * border_size + 1; row++) {
-    for (size_t col = 0; col < 128; col++) {
-      vert_field[(row << 7) + col] = (length - 2 * border_size - 1 + row) & 64 ? row_buffer2[col] : row_buffer[col];
+    if (black) {
+      for (size_t col = 0; col < width; col++) {
+         cur_row[col] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
+      }
+    } else {
+      for (size_t col = 0; col < width; col++) {
+         cur_row[col] = ((col & 64) ^ (row & 64)) ? 0.0f : WHITE_FLOAT;
+      }
     }
   }
 
 
-  stencil_border_part(border_size, vert_field, true);
-  vert_field = vert_field + 128 * border_size;
 
-  // create horizontal image, very expensive but better in the long run
-  for (size_t row = 0; row < 128; row++) {
-    float * restrict cur_row = &horiz_field[row * border_size];
-    for (size_t col = 0; col < border_size; col++) {
-      cur_row[col] = vert_field[(col<<7) + row];
+  // stencil
+  prev_row_bak = row_buffer1;
+  cur_row_bak  = row_buffer2;
+
+  for (size_t num_rows = width; num_rows >= border_size; num_rows--) {
+    memset(prev_row_bak, 0, sizeof(float) * width);
+
+    for (size_t row = 0; row < width; row++) {
+      float * restrict cur_row = field + (row * width);
+
+      memcpy(cur_row_bak, cur_row, width * sizeof(float));
+
+      // stencil over the horizontal
+      row_buffer3[0] = cur_row[0] * 6.0f + cur_row[1];
+      for (size_t col = 1; col < row; col++) {
+        row_buffer3[col] = cur_row[col-1] + cur_row[col] * 6.0f + cur_row[col+1];
+      }
+
+      // row additions
+      // Add previous and following line
+      float * restrict nxt_row = cur_row + width;
+      for (size_t col = 0; col < row; col++) {
+        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
+        cur_row[col] = tmp * 0.1f;
+      }
+
+      // last field is a special case
+      cur_row[row] = ((row == 0 ? 0.0f : 2 * cur_row[row+width]) + cur_row[row] * 6.0f + 2.0f * cur_row_bak[row-1]) * 0.1f;
+
+      // switch buffers
+      tmp2 = prev_row_bak;
+      prev_row_bak = cur_row_bak;
+      cur_row_bak = tmp2;
     }
   }
-  
-  //dump_field("test.pgm", 128, border_size, vert_field);
 
-  return (struct float_ptr_pair) {.ptr1 = vert_field, .ptr2 = horiz_field};
+  // mirror over the diagonal
+  for (size_t row = 0; row < width; row++) {
+    float * restrict cur_row = field + row * width;
+    for (size_t col = row; col < width; col++) {
+      cur_row[col] = field[col * width + row];
+    }
+  }
+
+  //dump_field("test.pgm", width, width, field);
+
+  return field;
 }
-
 
 
 
