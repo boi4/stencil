@@ -2,7 +2,7 @@
 
 LDFLAGS=-lm
 
-all: out/original out/debug out/o3 out/o3debug out/ofastdebug
+all: out/original out/debug out/o3 out/o3debug out/ofastdebug out/ofastgp
 
 out/original: out/stencil.o out/stencil_precompute.o
 	gcc -std=gnu99 -Wall $^ -o $@ ${LDFLAGS}
@@ -25,6 +25,9 @@ out/o3debug: out/stencil.o out/stencil_precompute.o
 out/ofastdebug: out/stencil.o out/stencil_precompute.o
 	gcc -std=gnu99 -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
 
+out/ofastgp: out/stencilgp.o out/stencil_precomputegp.o
+	gcc -std=gnu99 -pg -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
+
 
 verbose: stencil.c stencil_precompute.c
 	gcc -std=gnu99 -Wall -O3 -fopt-info-all -ggdb3 $^ -o /dev/null ${LDFLAGS}
@@ -34,4 +37,10 @@ out/stencil.o: stencil.c
 
 out/stencil_precompute.o: stencil_precompute.c
 	gcc -std=gnu99 -c -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
+
+out/stencilgp.o: stencil.c
+	gcc -std=gnu99 -pg -c -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
+
+out/stencil_precomputegp.o: stencil_precompute.c
+	gcc -std=gnu99 -pg -c -Wall -Ofast -mtune=native -ggdb3 $^ -o $@ ${LDFLAGS}
 
