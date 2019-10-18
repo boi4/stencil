@@ -316,34 +316,45 @@ struct float_ptr_pair precompute_upper_border(const size_t niters) {
 
   stencil_border_part(border_size, vert_field, false);
 
- // // create horizontal image, expensive but better in the long run
- // for (size_t row = 0; row < 64; row++) {
- //   float * restrict cur_row = &horiz_field[row * border_size];
- //   for (size_t col = 0; col < border_size; col++) {
- //     cur_row[col] = vert_field[(col<<6) + row];
- //   }
- // }
- // 
- // 
- // // fill full images
- // for (size_t row = 0; row < border_size; row++) {
- //   float * restrict cur_row_write = vert_full_field + (row<<7);
- //   for (size_t col = 0; col < 128; col++) {
- //     cur_row_write[col] = vert_field[(row<<6) + (col < 32 ? 31-col : (col < 96 ? col-32: 159-col))];
- //   }
- // }
+  // create horizontal image, expensive but better in the long run
+  for (size_t row = 0; row < 32; row++) {
+    float * restrict cur_row = &horiz_field[row * border_size];
+    for (size_t col = 0; col < border_size; col++) {
+      cur_row[col] = vert_field[(col<<5) + row];
+    }
+  }
+  
+  
+  // fill full images
+  for (size_t row = 0; row < border_size; row++) {
+    float * restrict cur_row_write = vert_full_field + (row<<7);
+    float * restrict cur_row_read = vert_field + (row << 5);
+    for (size_t col = 0; col < 32; col++) {
+      cur_row_write[col] = cur_row_read[col];
+    }
+    for (size_t col = 32; col < 64; col++) {
+      cur_row_write[col] = cur_row_read[63-col];
+    }
+    for (size_t col = 64; col < 96; col++) {
+      cur_row_write[col] = WHITE_FLOAT - cur_row_read[col & ~64];
+    }
+    for (size_t col = 96; col < 128; col++) {
+      cur_row_write[col] = WHITE_FLOAT - cur_row_read[127 - col];
+    }
+  }
 
- // // fill full images
- // for (size_t row = 0; row < 128; row++) {
- //   float * restrict cur_row_write = horiz_full_field + (row*border_size);
- //   for (size_t col = 0; col < border_size; col++) {
- //     cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
- //   }
- // }
+  // fill full images
+  for (size_t row = 0; row < 128; row++) {
+    float * restrict cur_row_write = horiz_full_field + (row*border_size);
+    for (size_t col = 0; col < border_size; col++) {
+      cur_row_write[col] = horiz_field[(row < 32 ? 31 - row : (row < 96 ? row-32:159-row)) * border_size + col];
+    }
+  }
 
-  dump_field("test.pgm", 32, border_size, vert_field);
+  //dump_field("test.pgm", 32, border_size, vert_field);
+  //dump_field("test.pgm", border_size, 32, horiz_field);
   //dump_field("test.pgm", border_size, 128, horiz_full_field);
-  //dump_field("test.pgm", 128, border_size, vert_full_field);
+  dump_field("test.pgm", 128, border_size, vert_full_field);
 
   return (struct float_ptr_pair) {.ptr1 = vert_full_field, .ptr2 = horiz_full_field};
 }
