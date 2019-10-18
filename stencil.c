@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
   printf(" runtime: %lf s\n", toc - tic);
   printf("------------------------------------\n");
 
-  output_image(OUTPUT_FILE, nx, ny, width, height, image);
+  //output_image(OUTPUT_FILE, nx, ny, width, height, image);
 }
 
 
