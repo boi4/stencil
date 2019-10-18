@@ -17,10 +17,9 @@ double wtime(void);
 
 // all externs are defined in stencil_precomupte.c
 extern float *precompute_center(size_t niters);
-extern struct float_ptr_pair precompute_upper_border(size_t niters);
-extern struct float_ptr_pair precompute_lower_border(const size_t niters, const size_t length);
+extern struct float_ptr_pair precompute_border(size_t niters, size_t offset, bool reverse);
 
-// debug stuff
+// debug stuff, also in stencil_precompute.c
 extern void dump_field(char *fname, int nx, int ny, float *field);
 extern void print_row(float *row, size_t length);
 
@@ -42,7 +41,7 @@ int main(int argc, char* argv[])
 
   // we pad the outer edge of the image to avoid out of range address issues in
   // stencil
-  size_t width = nx + 2;
+  size_t width  = nx + 2;
   size_t height = ny + 2;
 
   // Allocate the image
@@ -79,40 +78,51 @@ int main(int argc, char* argv[])
 void stencil(const size_t nx, const size_t ny, const size_t width, const size_t height, const size_t niters,
              float* image) {
 
-  const size_t border_size = niters;
+  const size_t border_size              = niters;
   const size_t border_size_padding_bits = 32 - __builtin_clz (border_size-1); // round up to the next power of 2
   const size_t border_size_with_padding = 1 << border_size_padding_bits;
 
-  if (nx < 2 * border_size || ny < 2 * border_size) { // we cannot optimize in this case
+  // TODO
+  //const size_t full_cost                = nx * ny * niters;
+  //const size_t prec_cost                = (64 * 64 * niters) + (border_size * 64 * niters) + (border_size * 64 * niters / 2);
+
+  if (2 * border_size >= nx || 2 * border_size >= ny) {
     stencil_full(nx, ny, image, niters);
   } else {
-    //stencil_full(nx, ny, image, niters);
-    // precompute stuff
-    struct float_ptr_pair p;
+    stencil_full(nx, ny, image, niters);
 
+    // ============== PRECOMPUTE STUFF ============================
     float * restrict center = precompute_center(niters);
-
-    p = precompute_upper_border(niters);
+    struct float_ptr_pair p = precompute_border(niters, 0, false);
 
     float *upper_border_field = p.ptr1;
-    float *left_border_field = p.ptr2;
+    float *left_border_field  = p.ptr2;
 
 
     // maybe we need to do some more calculations
     if (nx % 64) {
-      p = precompute_lower_border(niters, nx);
+      p = precompute_border(niters, (nx-border_size-1) % 128, true);
     }
     float *right_border_field = p.ptr2;
-    if (ny % 64 && ny != nx) {
-      p = precompute_lower_border(niters, ny);
-    }
-    float *lower_border_field = p.ptr1;
 
+    float *lower_border_field;
+    if (ny % 64 == nx % 64) {
+      lower_border_field = p.ptr1;
+    } else if(ny % 64) {
+      p = precompute_border(niters, (ny-border_size-1) % 128, true);
+      lower_border_field = p.ptr1;
+    } else {
+      lower_border_field = upper_border_field;
+    }
+
+
+
+    // ============ COPY COMPUTED STUFF INTO FIELD ================
 
     // fill center
     for (size_t row = border_size; row < ny-border_size; row++) {
-      float * restrict cur_row_read = center + ((row & 0x7f) << 7);
-      float * restrict cur_row_write = &image[(row+1) * width+1];
+      float * restrict cur_row_read  = center + ((row & 0x7f) << 7);
+      float * restrict cur_row_write = image  + ((row+1) * width + 1);
 
       for(size_t col = border_size; col < nx-border_size; col++) {
         cur_row_write[col] = cur_row_read[col & 0x7f];
@@ -121,39 +131,21 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
     // fill upper border
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_write = &image[(row+1) * width + 1];
-      float * restrict cur_row_read = &upper_border_field[row << 7];
+      float * restrict cur_row_write = image              + ((row+1) * width + 1);
+      float * restrict cur_row_read  = upper_border_field + (row << 7);
+
       for (size_t col = border_size; col < nx-border_size; col++) {
-        cur_row_write[col] = cur_row_read[col % 128];
+        cur_row_write[col] = cur_row_read[col & 0x7f];
       }
     }
 
     // fill left border
     for (size_t row = border_size; row < ny-border_size; row++) {
-      float * restrict cur_row_write = image + ((row+1) * width + 1);
-      float * restrict cur_row_read = left_border_field + (((row % 128) << border_size_padding_bits));
+      float * restrict cur_row_write = image             + ((row+1) * width + 1);
+      float * restrict cur_row_read  = left_border_field + (((row & 0x7f) << border_size_padding_bits));
+
       for (size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
-      }
-    }
-
-    // TODO add new vars instead of the whole col - (...) thing
-    // fill lower border
-    if (lower_border_field == upper_border_field) {
-      for (size_t row = ny - border_size - 0; row < ny; row++) {
-        float * restrict cur_row_write = &image[(row+1) * width + 1];
-        float * restrict cur_row_read = &lower_border_field[(ny-row-1) << 7];
-        for (size_t col = border_size; col < nx-border_size; col++) {
-          cur_row_write[col] = cur_row_read[(127-col) % 128];
-        }
-      }
-    } else { // TODO
-      for (size_t row = ny - border_size - 1; row < ny; row++) {
-        float * restrict cur_row_write = &image[(row+1) * width + 1];
-        float * restrict cur_row_read = &lower_border_field[(row-(ny-border_size-1)) << 7];
-        for (size_t col = border_size; col < nx-border_size; col++) {
-          cur_row_write[col] = cur_row_read[col % 128];
-        }
       }
     }
 
@@ -161,18 +153,60 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     const int bit_field = border_size_with_padding - 1;
     if (right_border_field == left_border_field) {
       for (size_t row = border_size; row < ny-border_size; row++) {
-        float * restrict cur_row_write = image + ((row+1) * width + 1);
-        float * restrict cur_row_read = right_border_field + (((127-row) % 128) << border_size_padding_bits);
+        float * restrict cur_row_write = image              + ((row+1) * width + 1);
+        float * restrict cur_row_read;
+        if (ny & 64) {
+          cur_row_read  = right_border_field + ((row & 0x7f) << border_size_padding_bits);
+        } else {
+          cur_row_read  = right_border_field + ((~row & 0x7f) << border_size_padding_bits);
+        }
+
         for (size_t col = nx-border_size; col < nx; col++) {
           cur_row_write[col] = cur_row_read[(border_size - (col - nx + border_size) - 1) & bit_field];
         }
       }
-    } else { // TODO
+    } else {
+      const size_t colstart = nx - border_size;
       for (size_t row = border_size; row < ny-border_size; row++) {
-        float * restrict cur_row_write = &image[(row+1) * width + 1];
-        float * restrict cur_row_read = &right_border_field[(row % 128) << border_size_padding_bits];
-        for (size_t col = nx-border_size-1; col < nx; col++) {
-          cur_row_write[col] = cur_row_read[col - (nx-border_size-1)];
+        float * restrict cur_row_write = image              + ((row+1) * width + 1);
+        float * restrict cur_row_read  = right_border_field + ((row & 0x7f) << border_size_padding_bits);
+
+        for (size_t col = colstart; col < nx; col++) {
+          cur_row_write[col] = cur_row_read[col - colstart];
+        }
+      }
+    }
+
+    // fill lower border
+    if (lower_border_field == upper_border_field) {
+      for (size_t row = ny - border_size; row < ny; row++) {
+        float * restrict cur_row_write = image              + ((row+1) * width + 1);
+        float * restrict cur_row_read  = lower_border_field + ((ny-row-1) << 7);
+
+        if (lower_border_field == upper_border_field && ny & 64) {
+          for (size_t col = border_size; col < nx-border_size; col++) {
+            cur_row_write[col] = cur_row_read[col & 0x7f];
+          }
+        } else {
+          for (size_t col = border_size; col < nx-border_size; col++) {
+            cur_row_write[col] = cur_row_read[(~col) & 0x7f];
+          }
+        }
+      }
+    } else {
+      const size_t rowstart = ny - border_size;
+      for (size_t row = rowstart; row < ny; row++) {
+        float * restrict cur_row_write = image              + ((row+1) * width + 1);
+        float * restrict cur_row_read  = lower_border_field + ((row-rowstart) << 7);
+
+        if (nx % 128 == ny % 128 || nx % 64 != ny %64) {
+          for (size_t col = border_size; col < nx-border_size; col++) {
+            cur_row_write[col] = cur_row_read[col & 0x7f];
+          }
+        } else {
+          for (size_t col = border_size; col < nx-border_size; col++) {
+            cur_row_write[col] = cur_row_read[~col & 0x7f];
+          }
         }
       }
     }
@@ -206,7 +240,7 @@ void stencil_full(const size_t nx, const size_t ny, float* image, const size_t n
   // start stencilin'
   for (size_t i = 0; i < niters; i++) {
 
-    prev_row_bak = image;
+    memset(prev_row_bak, 0, nx * sizeof(float)); // first 'invisible' row is black
 
     for (size_t row = 0; row < ny; row++) {
       float * restrict cur_row = image + ((row+1) * width) + 1;
