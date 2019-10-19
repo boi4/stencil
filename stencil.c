@@ -17,6 +17,7 @@ double wtime(void);
 
 // all externs are defined in stencil_precomupte.c
 extern float *precompute_center(size_t niters);
+extern float *precompute_symmetric_edge(size_t niters, bool black);
 extern struct float_ptr_pair precompute_border(size_t niters, size_t offset, bool reverse);
 
 // debug stuff, also in stencil_precompute.c
@@ -89,7 +90,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
   if (2 * border_size >= nx || 2 * border_size >= ny) {
     stencil_full(nx, ny, image, niters);
   } else {
-    stencil_full(nx, ny, image, niters);
+    //stencil_full(nx, ny, image, niters);
 
     // ============== PRECOMPUTE STUFF ============================
     float * restrict center = precompute_center(niters);
@@ -98,8 +99,29 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     float *upper_border_field = p.ptr1;
     float *left_border_field  = p.ptr2;
 
+    float * restrict upper_left_edge = precompute_symmetric_edge(niters, true);
+    float * restrict lower_left_edge;
+    float * restrict lower_right_edge;
+    float * restrict upper_right_edge;
 
-    // maybe we need to do some more calculations
+
+    // check for symmetries
+    if (nx % 64 == 0 && ny % 64 == 0) {
+      if (((nx+ny) & 64)) {
+        lower_right_edge = upper_left_edge;
+        upper_right_edge = precompute_symmetric_edge(niters, false);
+        lower_left_edge  = upper_right_edge;
+      } else {
+        upper_right_edge = upper_left_edge;
+        lower_left_edge  = upper_left_edge;
+        lower_right_edge = upper_left_edge;
+      }
+    } else {
+      fprintf(stderr, "TODO\n");
+      exit(-1);
+    }
+
+
     if (nx % 64) {
       p = precompute_border(niters, (nx-border_size-1) % 128, true);
     }
@@ -118,6 +140,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
 
     // ============ COPY COMPUTED STUFF INTO FIELD ================
+    const size_t edge_width = 2 * border_size + 1;
 
     // fill center
     for (size_t row = border_size; row < ny-border_size; row++) {
@@ -129,6 +152,16 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       }
     }
 
+    // fill upper left edge
+    for (size_t row = 0; row < border_size; row++) {
+      float * restrict cur_row_read  = upper_left_edge + (row * edge_width);
+      float * restrict cur_row_write = image  + ((row+1) * width + 1);
+
+      for(size_t col = 0; col < border_size; col++) {
+        cur_row_write[col] = cur_row_read[col];
+      }
+    }
+
     // fill upper border
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_write = image              + ((row+1) * width + 1);
@@ -136,6 +169,16 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
       for (size_t col = border_size; col < nx-border_size; col++) {
         cur_row_write[col] = cur_row_read[col & 0x7f];
+      }
+    }
+
+    // fill upper right edge
+    for (size_t row = 0; row < border_size; row++) {
+      float * restrict cur_row_read  = upper_right_edge + (row * edge_width);
+      float * restrict cur_row_write = image  + ((row+2) * width - border_size - 1);
+
+      for(size_t col = 0; col < border_size; col++) {
+        cur_row_write[col] = cur_row_read[border_size - col - 1];
       }
     }
 
@@ -177,6 +220,17 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       }
     }
 
+
+    // fill lower left edge
+    for (size_t row = 0; row < border_size; row++) {
+      float * restrict cur_row_read  = lower_left_edge + ((border_size - row - 1) * edge_width);
+      float * restrict cur_row_write = image  + (((height-border_size-2) + row+1) * width + 1);
+
+      for(size_t col = 0; col < border_size; col++) {
+        cur_row_write[col] = cur_row_read[col];
+      }
+    }
+
     // fill lower border
     if (lower_border_field == upper_border_field) {
       for (size_t row = ny - border_size; row < ny; row++) {
@@ -208,6 +262,16 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
             cur_row_write[col] = cur_row_read[~col & 0x7f];
           }
         }
+      }
+    }
+
+    // fill lower right edge
+    for (size_t row = 0; row < border_size; row++) {
+      float * restrict cur_row_read  = lower_right_edge + ((border_size - row - 1) * edge_width);
+      float * restrict cur_row_write = image  + (((height-border_size-2) + row+2) * width - border_size - 1);
+
+      for(size_t col = 0; col < border_size; col++) {
+        cur_row_write[col] = cur_row_read[border_size - col - 1];
       }
     }
 

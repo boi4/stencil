@@ -20,6 +20,7 @@ void dump_field(char *fname, int nx, int ny, float *field);
 /* This function will stencil the part where four tiles meet
  * it will simulate an infinite space by wrapping around the corners
  * probably could be optimized by using the symmetry following the diagonals (using only one fourth of small_field)
+ * TODO: optimize
  */
 float *precompute_center(size_t niters) {
   static float center_small[64][64]; // [row][column], compiler will make two elements on same row be next to each other
@@ -293,11 +294,11 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 
 /*
  * black: whether the top-left tile is black
- * returns a 2*niters x 2*niters big field, but only assures, that the top left niters x niters is correct
+ * returns a 2*niters+1 x 2*niters+1 big field, but only assures, that the top left niters x niters is correct
  */
 float *precompute_symmetric_edge(const size_t niters, bool black) {
   const size_t border_size = niters;
-  const size_t width = 2 * border_size - 1;
+  const size_t width = 2 * border_size + 1;
 
   static float * restrict row_buffer1;
   static float * restrict row_buffer2;
@@ -307,7 +308,9 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
   float tmp;
 
-  float * const restrict field       = (float *)__builtin_assume_aligned(mmap(NULL,
+
+  // allocate stuff
+  float * const restrict field = (float *)__builtin_assume_aligned(mmap(NULL,
                                                               width * width * sizeof(float),
                                                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0),BORDER_FIELD_ALIGNMENT);
 
@@ -347,10 +350,10 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   prev_row_bak = row_buffer1;
   cur_row_bak  = row_buffer2;
 
-  for (size_t num_rows = width; num_rows >= border_size; num_rows--) {
+  for (size_t num_rows = width - 1; num_rows >= border_size; num_rows--) {
     memset(prev_row_bak, 0, sizeof(float) * width);
 
-    for (size_t row = 0; row < width; row++) {
+    for (size_t row = 0; row < num_rows; row++) {
       float * restrict cur_row = field + (row * width);
 
       memcpy(cur_row_bak, cur_row, width * sizeof(float));
@@ -370,7 +373,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
       }
 
       // last field is a special case
-      cur_row[row] = ((row == 0 ? 0.0f : 2 * cur_row[row+width]) + cur_row[row] * 6.0f + 2.0f * cur_row_bak[row-1]) * 0.1f;
+      cur_row[row] = ((row == 0 ? 0.0f : 2 * cur_row_bak[row-1]) + cur_row[row] * 6.0f + 2.0f * cur_row[row+width]) * 0.1f;
 
       // switch buffers
       tmp2 = prev_row_bak;
