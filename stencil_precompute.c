@@ -295,6 +295,7 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 /*
  * black: whether the top-left tile is black
  * returns a 2*niters+1 x 2*niters+1 big field, but only assures, that the top left niters x niters is correct
+ * TODO: test padding 
  */
 float *precompute_symmetric_edge(const size_t niters, bool black) {
   const size_t border_size = niters;

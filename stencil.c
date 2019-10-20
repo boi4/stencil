@@ -107,14 +107,14 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
     // check for symmetries
     if (nx % 64 == 0 && ny % 64 == 0) {
-      if (((nx+ny) & 64)) {
-        lower_right_edge = upper_left_edge;
-        upper_right_edge = precompute_symmetric_edge(niters, false);
-        lower_left_edge  = upper_right_edge;
-      } else {
+      if (((nx+ny) & 128)) {
         upper_right_edge = upper_left_edge;
         lower_left_edge  = upper_left_edge;
         lower_right_edge = upper_left_edge;
+      } else {
+        lower_right_edge = upper_left_edge;
+        upper_right_edge = precompute_symmetric_edge(niters, false);
+        lower_left_edge  = upper_right_edge;
       }
     } else {
       fprintf(stderr, "TODO\n");
