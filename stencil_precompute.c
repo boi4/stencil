@@ -20,60 +20,52 @@ void dump_field(char *fname, int nx, int ny, float *field);
 /* This function will stencil the part where four tiles meet
  * it will simulate an infinite space by wrapping around the corners
  * probably could be optimized by using the symmetry following the diagonals (using only one fourth of small_field)
- * TODO: optimize
  */
 float *precompute_center(size_t niters) {
-  static float center_small[64][64]; // [row][column], compiler will make two elements on same row be next to each other
+  static float center_small[32][32]; // [row][column], compiler will make two elements on same row be next to each other
+  static float center_small_white[32][32];
   static float center_big[128][128]; // will be computed out of center_small
 
-  static float row_buffer[64]; // holds the previous row
-  static float row_buffer2[64]; // holds the previous row
-  static float row_buffer3[64]; // holds the previous row
+  static float row_buffer1[32];
+  static float row_buffer2[32];
+  static float row_buffer3[32];
 
   float tmp;
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
-  // create chessboard pattern
-  for (size_t i = 0; i < 32; i++) {
-    row_buffer[i] = WHITE_FLOAT;
-  }
-  for (size_t i = 32; i < 64; i++) {
-    row_buffer[i] = 0.0f;
-  }
-  for (size_t i = 32; i < 64; i++) {
-      memcpy(center_small[i], row_buffer, sizeof(row_buffer));
-  }
-  for (size_t i = 0; i < 32; i++) {
-    row_buffer[i] = 0.0f;
-  }
-  for (size_t i = 32; i < 64; i++) {
-    row_buffer[i] = WHITE_FLOAT;
-  }
-  for (size_t i = 0; i < 32; i++) {
-      memcpy(center_small[i], row_buffer, sizeof(row_buffer));
-  }
-  // we first do the lower half because we don't have to init row_buffer again
-
-  prev_row_bak = row_buffer;
-  cur_row_bak = row_buffer2;
+  prev_row_bak = row_buffer1;
+  cur_row_bak  = row_buffer2;
 
   for (size_t i = 0; i < niters; i++) {
-    for (size_t row = 0; row < 63; row++) {
+    for (size_t row = 0; row < 32; row++) {
       float * restrict cur_row = center_small[row];
-      row_buffer3[ 0] = center_small[63-row][63] + cur_row[ 0] * 6.0f + cur_row[ 1]; // TODO: first value will be wrong
-      for (size_t col = 1; col < 63; col++) {
+      row_buffer3[ 0] = cur_row[0] * 7.0f + cur_row[1];
+      for (size_t col = 1; col < 31; col++) {
         row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
-      row_buffer3[63] = center_small[63-row][0] + cur_row[63]* 6.0f + cur_row[62]; // TODO: first value will be wrong
-
-      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
+      row_buffer3[31] = WHITE_FLOAT+ cur_row[31] * 5.0f + cur_row[30];
 
       // row additions
       // Add previous and following line
-      float * restrict nxt_row = cur_row + 64;
-      for (size_t col = 0; col < 64; col++) {
-        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
-        center_small[row][col] = tmp * 0.1f;
+      if (row == 0) {
+        memcpy(cur_row_bak, cur_row, 32 * sizeof(float));
+        float * restrict nxt_row = cur_row + 32;
+        for (size_t col = 0; col < 32; col++) {
+          tmp = cur_row_bak[col] + nxt_row[col] + row_buffer3[col];
+          center_small[row][col] = tmp * 0.1f;
+        }
+      } else if (row == 31) {
+        for (size_t col = 0; col < 32; col++) {
+          tmp = prev_row_bak[col] + (WHITE_FLOAT - cur_row[col]) + row_buffer3[col];
+          center_small[row][col] = tmp * 0.1f;
+        }
+      } else {
+        memcpy(cur_row_bak, cur_row, 32 * sizeof(float));
+        float * restrict nxt_row = cur_row + 32;
+        for (size_t col = 0; col < 32; col++) {
+          tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
+          center_small[row][col] = tmp * 0.1f;
+        }
       }
 
       // switch buffers
@@ -81,70 +73,33 @@ float *precompute_center(size_t niters) {
       prev_row_bak = cur_row_bak;
       cur_row_bak = tmp2;
     }
-
-    // special case last row
-    float * restrict cur_row = center_small[63];
-    row_buffer3[ 0] = center_small[0][63] + cur_row[ 0] * 6.0f + cur_row[ 1]; // TODO: first value will be wrong
-    for (size_t col = 1; col < 63; col++) {
-      row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
-    }
-    row_buffer3[63] = center_small[0][0] + cur_row[63]* 6.0f + cur_row[62]; // TODO: first value will be wrong
-
-    // TODO: vectorize
-    // Add previous and following line
-    float * restrict nxt_row = center_small[0];
-    for (size_t col = 0; col < 64; col++) {
-      tmp = prev_row_bak[col] + nxt_row[63-col] + row_buffer3[col];
-      center_small[63][col] = tmp * 0.1f;
-    }
-
-    // set reverse row for the first line in next iteration
-    for(size_t i = 0; i < 64; i++) {cur_row_bak[i] = center_small[63][63-i];}
-
-    // switch buffers
-    tmp2 = prev_row_bak;
-    prev_row_bak = cur_row_bak;
-    cur_row_bak = tmp2;
   }
 
+  // copy white field into middle
+  for (size_t row = 0; row < 32; row++) {
+    for (size_t col = 0; col < 32; col++) {
+      center_small_white[row][col] = WHITE_FLOAT - center_small[row][col];
+    }
+  }
 
   // fill big field
-  // copy small field into the middle
-  for (size_t row = 32; row < 96; row++) {
-    for (size_t col = 32; col < 96; col++) {
-      center_big[row][col] = center_small[row-32][col-32];
+
+  // go from top left to bottom right
+  for (size_t row = 0; row < 128; row++) {
+    float * restrict cur_row = ((row & 64) ? center_small_white : center_small)
+                               [(row & 32) ? row & 0x1f: ~row & 0x1f];
+    for (size_t col = 0; col < 64; col++) {
+      center_big[row][col] = cur_row[col & 32 ? col & 0x1f : ~col & 0x1f] ;
+    }
+    cur_row = ((row & 64) ? center_small : center_small_white)
+                               [(row & 32) ? row & 0x1f: ~row & 0x1f];
+    for (size_t col = 64; col < 128; col++) {
+      center_big[row][col] = cur_row[col & 32 ? col & 0x1f : ~col & 0x1f] ;
     }
   }
 
-  // mirror small field on the left
-  for (size_t row = 32; row < 96; row++) {
-    for (size_t col = 0; col < 32; col++) {
-      center_big[row][col] = center_big[row][63-col];
-    }
-  }
-
-  // mirror small field on the right
-  for (size_t row = 32; row < 96; row++) {
-    for (size_t col = 96; col < 128; col++) {
-      center_big[row][col] = center_big[127-row][col-64];
-    }
-  }
-
-  // mirror whole thing on top
-  for (size_t row = 0; row < 32; row++) {
-    for (size_t col = 0; col < 128; col++) {
-      center_big[row][col] = center_big[63-row][col];
-    }
-  }
-
-  // mirror whole thing on bottom
-  for (size_t row = 96; row < 128; row++) {
-    for (size_t col = 0; col < 128; col++) {
-      center_big[row][col] = center_big[row-64][127-col];
-    }
-  }
-
-  //dump_field("test.pgm", 64, 64, center_small[0]);
+  //dump_field("test.pgm", 32, 32, center_small[0]);
+  //dump_field("test.pgm", 128, 128, center_big[0]);
   return *center_big;
 }
 
