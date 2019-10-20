@@ -85,16 +85,17 @@ float *precompute_center(size_t niters) {
   // fill big field
 
   // go from top left to bottom right
+  #define NOT_IF_BIT_SET(X, B) ((((((X) & ( 1 << (B)) >> B) * 0xFFFFFFFFFFFFFFFFLU) ^ (X))))
   for (size_t row = 0; row < 128; row++) {
     float * restrict cur_row = ((row & 64) ? center_small_white : center_small)
-                               [(row & 32) ? row & 0x1f: ~row & 0x1f];
+                               [NOT_IF_BIT_SET(row, 5) & 0x1f];
     for (size_t col = 0; col < 64; col++) {
-      center_big[row][col] = cur_row[col & 32 ? col & 0x1f : ~col & 0x1f] ;
+      center_big[row][col] = cur_row[NOT_IF_BIT_SET(col, 5)] ;
     }
     cur_row = ((row & 64) ? center_small : center_small_white)
-                               [(row & 32) ? row & 0x1f: ~row & 0x1f];
+                               [ NOT_IF_BIT_SET(row, 5) &0x1f];
     for (size_t col = 64; col < 128; col++) {
-      center_big[row][col] = cur_row[col & 32 ? col & 0x1f : ~col & 0x1f] ;
+      center_big[row][col] = cur_row[NOT_IF_BIT_SET(col, 5)] ;
     }
   }
 
