@@ -36,8 +36,8 @@ int main(int argc, char* argv[])
   }
 
   // Initiliase problem dimensions from command line arguments
-  size_t nx     = strtoul(argv[1], NULL, 0);
-  size_t ny     = strtoul(argv[2], NULL, 0);
+  size_t nx     =   strtoul(argv[1], NULL, 0);
+  size_t ny     =   strtoul(argv[2], NULL, 0);
   size_t niters = 2*strtoul(argv[3], NULL, 0);
 
   // we pad the outer edge of the image to avoid out of range address issues in
@@ -58,7 +58,7 @@ int main(int argc, char* argv[])
   }
                             
   // Set the input image
-  init_image(nx, ny, width, height, image);
+//  init_image(nx, ny, width, height, image);
 
   // Call the stencil kernel
   double tic = wtime();
@@ -143,13 +143,19 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     const size_t edge_width = 2 * border_size + 1;
 
     // fill center
+    const size_t col_start = border_size % 128;
+    const size_t fit_start = border_size + (128-col_start);
+    const size_t col_end   = (nx-border_size) % 128;
+    const size_t fit_end   = nx-border_size - col_end;
+
     for (size_t row = border_size; row < ny-border_size; row++) {
       float * restrict cur_row_read  = center + ((row & 0x7f) << 7);
       float * restrict cur_row_write = image  + ((row+1) * width + 1);
-
-      for(size_t col = border_size; col < nx-border_size; col++) {
-        cur_row_write[col] = cur_row_read[col & 0x7f];
+      memcpy(cur_row_write + border_size, cur_row_read + col_start, (128-col_start) * sizeof(float));
+      for(size_t col = fit_start; col < fit_end; col+=128) {
+        memcpy(cur_row_write + col, cur_row_read, 128 * sizeof(float));
       }
+      memcpy(cur_row_write + fit_end, cur_row_read, col_end * sizeof(float));
     }
 
     // fill upper left edge
