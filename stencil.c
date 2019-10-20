@@ -9,7 +9,7 @@
 
 
 void stencil(const size_t nx, const size_t ny, const size_t width, const size_t height, const size_t niters, float* image);
-void stencil_full(const size_t nx, const size_t ny, float* image, size_t niters);
+void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, size_t niters);
 void init_image(const int nx, const int ny, const int width, const int height, float* image);
 void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
@@ -40,25 +40,27 @@ int main(int argc, char* argv[])
   size_t ny     =   strtoul(argv[2], NULL, 0);
   size_t niters = 2*strtoul(argv[3], NULL, 0);
 
-  // we pad the outer edge of the image to avoid out of range address issues in
+  // we pad width, so each row is 128 bit aligned
   // stencil
-  size_t width  = nx + 2;
+  size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
   size_t height = ny + 2;
 
   // Allocate the image
-  size_t image_size = ((width * height * sizeof(float)) + 0x1000) & (~(size_t)0xfff);
+  // we allocate an extra page, to put the field so on the memory that actually the first 'seen' block is aligned
+  size_t image_size = ((width * height * sizeof(float)) + 0x2000) & (~(size_t)0xfff);
 
-  float * restrict image = (float *)mmap(NULL, image_size,
+  float * restrict all = (float *)mmap(NULL, image_size,
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
 
-  if (!image) {
+  if (!all) {
     fprintf(stderr, "Memory Error\n");
     exit(-1);
   }
+  float * restrict image = all + 0xfff;
                             
   // Set the input image
-//  init_image(nx, ny, width, height, image);
+  init_image(nx, ny, width, height, image);
 
   // Call the stencil kernel
   double tic = wtime();
@@ -88,7 +90,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
   //const size_t prec_cost                = (64 * 64 * niters) + (border_size * 64 * niters) + (border_size * 64 * niters / 2);
 
   if (2 * border_size >= nx || 2 * border_size >= ny) {
-    stencil_full(nx, ny, image, niters);
+    stencil_full(nx, ny, width, height, image, niters);
   } else {
     //stencil_full(nx, ny, image, niters);
 
@@ -151,11 +153,27 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     for (size_t row = border_size; row < ny-border_size; row++) {
       float * restrict cur_row_read  = center + ((row & 0x7f) << 7);
       float * restrict cur_row_write = image  + ((row+1) * width + 1);
-      memcpy(cur_row_write + border_size, cur_row_read + col_start, (128-col_start) * sizeof(float));
-      for(size_t col = fit_start; col < fit_end; col+=128) {
-        memcpy(cur_row_write + col, cur_row_read, 128 * sizeof(float));
+
+      float * restrict src = cur_row_read + col_start;
+      float * restrict dst = cur_row_write + border_size;
+      size_t num = 128-col_start;
+
+      for(size_t i = 0; i < num; i++) {
+        dst[i] = src[i];
       }
-      memcpy(cur_row_write + fit_end, cur_row_read, col_end * sizeof(float));
+
+      src = cur_row_read;
+      for(size_t col = fit_start; col < fit_end; col+=128) {
+        dst = __builtin_assume_aligned(cur_row_write + col, MAIN_FIELD_ALIGNMENT);
+        for (size_t i = 0; i < 128; i++) {
+          dst[i] = src[i];
+        }
+      }
+
+      dst = cur_row_write + fit_end;
+      for(size_t i = 0; i < col_end; i++) {
+        dst[i] = src[i];
+      }
     }
 
     // fill upper left edge
@@ -288,19 +306,19 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
 
 // this function just stencils the whole field, assuming black borders around it
-void stencil_full(const size_t nx, const size_t ny, float* image, const size_t niters)
+void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, const size_t niters)
 {
-  size_t width  = nx + 2;
   float tmp;
 
   void *all_ptr = NULL;
-  if (posix_memalign(&all_ptr, 0x10, nx*3*sizeof(float))) {
+  const size_t aligned = (nx + 31) & ~31;
+  if (posix_memalign(&all_ptr, 32, aligned*3*sizeof(float))) {
     fprintf(stderr, "Memory Error\n");
     exit(-1);
   }
-  float * restrict row_buffer1 = (float *)all_ptr;
-  float * restrict row_buffer2 = row_buffer1 + nx;
-  float * restrict row_buffer3 = row_buffer2 + nx;
+  float * restrict row_buffer1 = __builtin_assume_aligned((float *)all_ptr, 32);
+  float * restrict row_buffer2 = __builtin_assume_aligned(row_buffer1 + aligned, 32);
+  float * restrict row_buffer3 = __builtin_assume_aligned(row_buffer2 + aligned, 32);
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
@@ -322,7 +340,9 @@ void stencil_full(const size_t nx, const size_t ny, float* image, const size_t n
       }
       row_buffer3[nx-1] = 0.0f + cur_row[nx-1] * 6.0f + cur_row[nx-2];
       
-      memcpy(cur_row_bak, cur_row, nx * sizeof(float));
+      for (size_t i = 0; i < nx; i++) {
+        cur_row_bak[i] = cur_row[i];
+      }
 
       // row additions
       // Add previous and following line

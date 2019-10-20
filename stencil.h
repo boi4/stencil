@@ -7,6 +7,7 @@
 #define OUTPUT_FILE "stencil.pgm"
 #define WHITE_FLOAT 100.0f
 #define BORDER_FIELD_ALIGNMENT 0x80 // should be at least 16 for vectorization and not greater than 0x1000
+#define MAIN_FIELD_ALIGNMENT 32 // 128 bit
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
 
