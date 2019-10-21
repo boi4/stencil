@@ -47,9 +47,9 @@ int main(int argc, char* argv[])
 
   // Allocate the image
   // we allocate an extra page, to put the field so on the memory that actually the first 'seen' block is aligned
-  size_t image_size = ((width * height * sizeof(float)) + 0x2000) & (~(size_t)0xfff);
+  size_t image_size = ((width * height * sizeof(float)) + 0x2000LU) & (~(size_t)0xfffLU);
 
-  float * restrict all = (float *)mmap(NULL, image_size,
+  void * restrict all = (float *)mmap(NULL, image_size,
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
 
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
     fprintf(stderr, "Memory Error\n");
     exit(-1);
   }
-  float * restrict image = all + 0xfff;
+  float * restrict image = (float *)((char *)all + 0xffc);
                             
   // Set the input image
   init_image(nx, ny, width, height, image);
@@ -92,8 +92,6 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
   if (2 * border_size >= nx || 2 * border_size >= ny) {
     stencil_full(nx, ny, width, height, image, niters);
   } else {
-    //stencil_full(nx, ny, image, niters);
-
     // ============== PRECOMPUTE STUFF ============================
     float * restrict center = precompute_center(niters);
     struct float_ptr_pair p = precompute_border(niters, 0, false);

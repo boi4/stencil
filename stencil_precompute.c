@@ -43,7 +43,7 @@ float *precompute_center(size_t niters) {
       for (size_t col = 1; col < 31; col++) {
         row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
-      row_buffer3[31] = WHITE_FLOAT+ cur_row[31] * 5.0f + cur_row[30];
+      row_buffer3[31] = WHITE_FLOAT + cur_row[31] * 5.0f + cur_row[30];
 
       // row additions
       // Add previous and following line
@@ -85,6 +85,7 @@ float *precompute_center(size_t niters) {
   // fill big field
 
   // go from top left to bottom right
+  // TODO: use memcpy
   for (size_t row = 0; row < 128; row++) {
     float * restrict cur_row = ((row & 64) ? center_small_white : center_small)
                                [(row & 32) ? row & 0x1f: ~row & 0x1f];
@@ -268,7 +269,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   // allocate stuff
   float * const restrict field = (float *)__builtin_assume_aligned(mmap(NULL,
                                                               width * width * sizeof(float),
-                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0),BORDER_FIELD_ALIGNMENT);
+                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), BORDER_FIELD_ALIGNMENT);
 
   if (!field) {
     fprintf(stderr, "Memory Error %d\n", __LINE__);
@@ -276,7 +277,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   }
 
   if (!row_buffer1) {
-    if (posix_memalign(&all_ptr, 0x100, 3*width*sizeof(float))) { // will never be freed
+    if (posix_memalign(&all_ptr, 32, 3 * width*sizeof(float))) { // will never be freed
       fprintf(stderr, "Memory Error %d\n", __LINE__);
       exit(-1);
     }
