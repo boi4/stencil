@@ -18,6 +18,7 @@ double wtime(void);
 // all externs are defined in stencil_precomupte.c
 extern float *precompute_center(size_t niters);
 extern float *precompute_symmetric_edge(size_t niters, bool black);
+extern float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t yoff);
 extern struct float_ptr_pair precompute_border(size_t niters, size_t offset, bool reverse);
 
 // debug stuff, also in stencil_precompute.c
@@ -117,8 +118,10 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
         lower_left_edge  = upper_right_edge;
       }
     } else {
-      fprintf(stderr, "TODO\n");
-      exit(-1);
+      // TODO: check whether edges on top right and bottom left are the same
+      lower_left_edge  = precompute_full_edge(niters, 0, ~(ny^64) % 128);
+      lower_right_edge = precompute_full_edge(niters, ~(nx^64) % 128, ~(ny^64) % 128);
+      upper_right_edge = precompute_full_edge(niters, ~(nx^64) % 128, 0);
     }
 
 
@@ -140,7 +143,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
 
     // ============ COPY COMPUTED STUFF INTO FIELD ================
-    const size_t edge_width = 2 * border_size + 1;
+    // TODO: instead of mirroring, mirror it only once
+    const size_t tmp = 2 * border_size + 1;
+    const size_t edge_width = (tmp + (EDGE_ALIGNMENT/sizeof(float)) - 1) & ~((EDGE_ALIGNMENT/sizeof(float)) - 1);
 
     // fill center
     const size_t col_start = border_size % 128;
@@ -292,7 +297,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     // fill lower right edge
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_read  = lower_right_edge + ((border_size - row - 1) * edge_width);
-      float * restrict cur_row_write = image  + (((ny-border_size) + row+1) * width + ny - border_size + 1);
+      float * restrict cur_row_write = image  + (((ny-border_size) + row+1) * width + nx - border_size + 1);
 
       for(size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[border_size - col - 1];
