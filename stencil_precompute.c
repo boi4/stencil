@@ -47,8 +47,7 @@ float *precompute_center(size_t niters) {
       // row additions
       // Add previous and following line
       if (row == 0) {
-        for (size_t i = 0; i < 32; i++) cur_row_bak[i]  = cur_row[i];
-
+        memcpy(cur_row_bak, cur_row, 32 * sizeof(float));
         float * restrict nxt_row = cur_row + 32;
         for (size_t col = 0; col < 32; col++) {
           tmp = cur_row_bak[col] + nxt_row[col] + row_buffer3[col];
@@ -60,8 +59,7 @@ float *precompute_center(size_t niters) {
           center_small[row][col] = tmp * 0.1f;
         }
       } else {
-        for (size_t i = 0; i < 32; i++) cur_row_bak[i] = cur_row[i];
-
+        memcpy(cur_row_bak, cur_row, 32 * sizeof(float));
         float * restrict nxt_row = cur_row + 32;
         for (size_t col = 0; col < 32; col++) {
           tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
@@ -141,7 +139,7 @@ void stencil_border_part(size_t border_size,
       }
       row_buffer3[63] = cur_row[63] * 7.0f + cur_row[62]; // we are mirroring on the right
       
-      for(size_t i = 0; i < 64; i++) cur_row_bak[i] = cur_row[i];
+      memcpy(cur_row_bak, cur_row, 64 * sizeof(float));
 
       // row additions
       // Add previous and following line
@@ -253,6 +251,7 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 
 /*
  * black: whether the top-left tile is black
+ * returns a 2*niters+1 x 2*niters+1 big field, but only assures, that the top left niters x niters is correct
  */
 float *precompute_symmetric_edge(const size_t niters, bool black) {
   const size_t border_size = niters;
@@ -317,8 +316,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
     for (size_t row = 0; row < num_rows; row++) {
       float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
 
-      float * restrict const crb     = __builtin_assume_aligned(cur_row_bak, EDGE_ALIGNMENT);
-      for (size_t i = 0; i < num_rows; i++) crb[i] = cur_row_bak[i];
+      memcpy(cur_row_bak, cur_row, width_used * sizeof(float));
 
       // stencil over the horizontal
       row_buffer3[0] = cur_row[0] * 6.0f + cur_row[1];
@@ -418,8 +416,7 @@ float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t
     for (size_t row = 0; row < num_rows; row++) {
       float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
 
-      float * restrict const crb     = __builtin_assume_aligned(cur_row_bak, EDGE_ALIGNMENT);
-      for (size_t i = 0; i < num_rows; i++) crb[i] = cur_row_bak[i];
+      memcpy(cur_row_bak, cur_row, num_rows * sizeof(float));
 
       // stencil over the horizontal
       row_buffer3[0] = cur_row[0] * 6.0f + cur_row[1];
