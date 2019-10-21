@@ -251,7 +251,6 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 
 /*
  * black: whether the top-left tile is black
- * returns a 2*niters+1 x 2*niters+1 big field, but only assures, that the top left niters x niters is correct
  */
 float *precompute_symmetric_edge(const size_t niters, bool black) {
   const size_t border_size = niters;
@@ -273,14 +272,13 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   float * const restrict field = (float *)__builtin_assume_aligned(mmap(NULL,
                                                               width * width_used * sizeof(float),
                                                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), EDGE_ALIGNMENT);
-
   if (!field) {
     fprintf(stderr, "Memory Error %d\n", __LINE__);
     exit(-1);
   }
 
   if (!row_buffer1) {
-    if (posix_memalign(&all_ptr, 32, 3 * width*sizeof(float))) { // will never be freed
+    if (posix_memalign(&all_ptr, 32, 3 * width * sizeof(float))) { // will never be freed
       fprintf(stderr, "Memory Error %d\n", __LINE__);
       exit(-1);
     }
@@ -290,7 +288,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   }
 
   // setup chessboard pattern
-  for (size_t row = 0; row < width; row++) {
+  for (size_t row = 0; row < width_used; row++) {
     float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
 
     if (black) {
@@ -345,14 +343,14 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   }
 
   // mirror over the diagonal
-  for (size_t row = 0; row < width_used; row++) {
+  for (size_t row = 0; row < border_size; row++) {
     float * restrict cur_row = field + row * width;
-    for (size_t col = row; col < width_used; col++) {
+    for (size_t col = row; col < border_size; col++) {
       cur_row[col] = field[col * width + row];
     }
   }
 
-  //dump_field("test.pgm", width, width, field);
+  //dump_field("test.pgm", width, width_used, field);
 
   return field;
 }
