@@ -118,10 +118,10 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
         lower_left_edge  = upper_right_edge;
       }
     } else {
-      // TODO: check whether edges on top right and bottom left are the same
-      lower_left_edge  = precompute_full_edge(niters, 0, ~(ny^64) % 128);
-      lower_right_edge = precompute_full_edge(niters, ~(nx^64) % 128, ~(ny^64) % 128);
-      upper_right_edge = precompute_full_edge(niters, ~(nx^64) % 128, 0);
+      // TODO: check whether some edges are the same
+      lower_left_edge  = precompute_full_edge(niters, 0, ~((ny-1)^64) % 128);
+      lower_right_edge = precompute_full_edge(niters, ~((nx-1)^64) % 128, ~((ny-1)^64) % 128);
+      upper_right_edge = precompute_full_edge(niters, ~((nx-1)^64) % 128, 0);
     }
 
 
