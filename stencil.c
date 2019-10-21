@@ -173,6 +173,8 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
         dst[i] = src[i];
       }
     }
+    
+    // TODO: vectorize
 
     // fill upper left edge
     for (size_t row = 0; row < border_size; row++) {
@@ -197,7 +199,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     // fill upper right edge
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_read  = upper_right_edge + (row * edge_width);
-      float * restrict cur_row_write = image  + ((row+2) * width - border_size - 1);
+      float * restrict cur_row_write = image  + ((row+1) * width + nx - border_size + 1);
 
       for(size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[border_size - col - 1];
@@ -246,7 +248,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     // fill lower left edge
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_read  = lower_left_edge + ((border_size - row - 1) * edge_width);
-      float * restrict cur_row_write = image  + (((height-border_size-2) + row+1) * width + 1);
+      float * restrict cur_row_write = image  + (((ny - border_size) + row+1) * width + 1);
 
       for(size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
@@ -290,7 +292,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     // fill lower right edge
     for (size_t row = 0; row < border_size; row++) {
       float * restrict cur_row_read  = lower_right_edge + ((border_size - row - 1) * edge_width);
-      float * restrict cur_row_write = image  + (((height-border_size-2) + row+2) * width - border_size - 1);
+      float * restrict cur_row_write = image  + (((ny-border_size) + row+1) * width + ny - border_size + 1);
 
       for(size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[border_size - col - 1];
