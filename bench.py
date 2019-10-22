@@ -46,8 +46,26 @@ def average_out_of(exec_name, nx, ny, niter, times):
 
 subprocess.run(["make"])
 
-if sys.argv[1] == "full":
-    for size in [1024, 4096, 8000]:
-        for exec_name in ["./out/original", "./out/o1","./out/o2",  "./out/o3", "./out/ofast" ]:
-            print("{:20} {} {} 100, average out of 100: ".format(exec_name,
-                size, size) ,average_out_of(exec_name, size, size, 100, 100))
+if "full" in sys.argv:
+    sizes = [1024, 4096, 8000]
+    execs = ["./out/original", "./out/o1","./out/o2",  "./out/o3", "./out/ofast",
+                      "./out/clangoriginal", "./out/clango1","./out/clango2",  "./out/clango3", "./out/clangofast" ]
+elif "small" in sys.argv:
+    sizes = [1024]
+elif "big" in sys.argv:
+    sizes = [8000]
+if "clangofast" in sys.argv:
+    execs = ["./out/clangofast"]
+
+for size in sizes:
+    for exec_name in execs:
+        print("{:20} {} {} 100, average out of 100: ".format(exec_name, size, size)
+                ,average_out_of(exec_name, size, size, 100, 100))
+
+#print(verify("stencil_1024_1024_100.pgm"))
+
+
+exec_name = "./out/iccofast"
+for size in range(64, 32064, 128):
+        print("{:5}x{:5} average out of 10".format(size, size),
+                    average_out_of(exec_name, size, size, 100, 10))
