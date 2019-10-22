@@ -79,18 +79,34 @@ int main(int argc, char* argv[])
 }
 
 
+size_t get_precomputation_costs(const size_t nx, const size_t ny, const size_t niters) {
+  if (nx % 64 == 0 && ny % 64 == 0) {
+    return 96 * niters + 32 * 32 + (size_t)((niters * 1.5)*(niters*1.5 + 1)/((nx + ny) % 128 ? 1 : 2));
+  } else {
+    if (nx % 64 == ny % 64) {
+      return 3 * (size_t)(niters * 1.5 * niters * 1.5) + (niters*1.5 * (niters * 1.5 + 1))/2 + 32 * 32 + 96 * niters;
+    } else {
+      return 3 * (size_t)(niters * 1.5 * niters * 1.5) + (niters*1.5 * (niters * 1.5 + 1))/2 + 32 * 32 + 3 * 96 * niters;
+    }
+  }
+}
+
+
 void stencil(const size_t nx, const size_t ny, const size_t width, const size_t height, const size_t niters,
              float* image) {
 
   const size_t border_size              = niters;
+
+  // these are used together with padding in precompute_border to avoid some division instructions
   const size_t border_size_padding_bits = 32 - __builtin_clz (border_size-1); // round up to the next power of 2
   const size_t border_size_with_padding = 1 << border_size_padding_bits;
 
-  // TODO
-  //const size_t full_cost                = nx * ny * niters;
-  //const size_t prec_cost                = (64 * 64 * niters) + (border_size * 64 * niters) + (border_size * 64 * niters / 2);
+  // get estimated costs
+  const size_t full_cost                = nx * ny * niters;
+  const size_t prec_cost                = get_precomputation_costs(nx, ny, niters);
 
-  if (2 * border_size >= nx || 2 * border_size >= ny) {
+  if (prec_cost >= full_cost || 2 * border_size >= nx || 2 * border_size >= ny) {
+    // precomputation is not worth it, just stencil the full field
     stencil_full(nx, ny, width, height, image, niters);
   } else {
     // ============== PRECOMPUTE STUFF ============================
@@ -106,7 +122,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     float * restrict upper_right_corner;
 
 
-    // check for symmetries
+    // check for symmetries at the corners
     if (nx % 64 == 0 && ny % 64 == 0) {
       if (((nx+ny) & 128)) {
         upper_right_corner = upper_left_corner;
@@ -124,7 +140,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       upper_right_corner = precompute_full_corner(niters, ~((nx-1)^64) % 128, 0);
     }
 
-
+    // check for symmetries at the borders
     if (nx % 64) {
       p = precompute_border(niters, (nx-border_size-1) % 128, true);
     }
@@ -147,7 +163,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     const size_t tmp = 2 * border_size + 1;
     const size_t corner_width = (tmp + (CORNER_ALIGNMENT/sizeof(float)) - 1) & ~((CORNER_ALIGNMENT/sizeof(float)) - 1);
 
+
     // fill center
+    // by far the most important loop, we want the fastest copying possible
     const size_t col_start = border_size % 128;
     const size_t fit_start = border_size + (128-col_start);
     const size_t col_end   = (nx-border_size) % 128;
@@ -157,7 +175,7 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       float * restrict cur_row_read  = center + ((row & 0x7f) << 7);
       float * restrict cur_row_write = image  + ((row+1) * width + 1);
 
-      float * restrict src = cur_row_read + col_start;
+      float * restrict src = cur_row_read  + col_start;
       float * restrict dst = cur_row_write + border_size;
       size_t num = 128-col_start;
 
@@ -308,7 +326,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
 
 
-// this function just stencils the whole field, assuming black borders around it
+/* this function just stencils the whole field, assuming black borders around it
+ * only used if precomputing isn't faster
+ */
 void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, const size_t niters)
 {
   float tmp;

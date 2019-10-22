@@ -18,7 +18,6 @@ void dump_field(char *fname, int nx, int ny, float *field);
 
 
 /* This function will stencil a quarter of a tile in the center
- * it will simulate an infinite space by wrapping around the corners
  */
 float *precompute_center(size_t niters) {
   static float center_small[32][32]; // [row][column], compiler will make two elements on same row be next to each other
@@ -125,6 +124,8 @@ void stencil_border_part(size_t border_size,
   cur_row_bak = row_buffer2;  // holds the original current row
 
   // start stencilin'
+  // we actually start going over more than border_size fields, this is not described
+  // in the report as more space would have been needer
   for (size_t num_rows = 2 * border_size - 1; num_rows >= border_size; num_rows--) {
 
     memset(prev_row_bak, 0, 64 * sizeof(float)); // first 'invisible' row is black
