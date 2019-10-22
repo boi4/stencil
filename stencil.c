@@ -17,8 +17,8 @@ double wtime(void);
 
 // all externs are defined in stencil_precomupte.c
 extern float *precompute_center(size_t niters);
-extern float *precompute_symmetric_edge(size_t niters, bool black);
-extern float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t yoff);
+extern float *precompute_symmetric_corner(size_t niters, bool black);
+extern float *precompute_full_corner(const size_t niters, const size_t xoff, const size_t yoff);
 extern struct float_ptr_pair precompute_border(size_t niters, size_t offset, bool reverse);
 
 // debug stuff, also in stencil_precompute.c
@@ -100,28 +100,28 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     float *upper_border_field = p.ptr1;
     float *left_border_field  = p.ptr2;
 
-    float * restrict upper_left_edge = precompute_symmetric_edge(niters, true);
-    float * restrict lower_left_edge;
-    float * restrict lower_right_edge;
-    float * restrict upper_right_edge;
+    float * restrict upper_left_corner = precompute_symmetric_corner(niters, true);
+    float * restrict lower_left_corner;
+    float * restrict lower_right_corner;
+    float * restrict upper_right_corner;
 
 
     // check for symmetries
     if (nx % 64 == 0 && ny % 64 == 0) {
       if (((nx+ny) & 128)) {
-        upper_right_edge = upper_left_edge;
-        lower_left_edge  = upper_left_edge;
-        lower_right_edge = upper_left_edge;
+        upper_right_corner = upper_left_corner;
+        lower_left_corner  = upper_left_corner;
+        lower_right_corner = upper_left_corner;
       } else {
-        lower_right_edge = upper_left_edge;
-        upper_right_edge = precompute_symmetric_edge(niters, false);
-        lower_left_edge  = upper_right_edge;
+        lower_right_corner = upper_left_corner;
+        upper_right_corner = precompute_symmetric_corner(niters, false);
+        lower_left_corner  = upper_right_corner;
       }
     } else {
-      // TODO: check whether some edges are the same
-      lower_left_edge  = precompute_full_edge(niters, 0, ~((ny-1)^64) % 128);
-      lower_right_edge = precompute_full_edge(niters, ~((nx-1)^64) % 128, ~((ny-1)^64) % 128);
-      upper_right_edge = precompute_full_edge(niters, ~((nx-1)^64) % 128, 0);
+      // TODO: check whether some corners are the same
+      lower_left_corner  = precompute_full_corner(niters, 0, ~((ny-1)^64) % 128);
+      lower_right_corner = precompute_full_corner(niters, ~((nx-1)^64) % 128, ~((ny-1)^64) % 128);
+      upper_right_corner = precompute_full_corner(niters, ~((nx-1)^64) % 128, 0);
     }
 
 
@@ -143,9 +143,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
 
 
     // ============ COPY COMPUTED STUFF INTO FIELD ================
-    // TODO: instead of mirroring, mirror it only once
+    // TODO: instead of mirroring, mirror it only once, then vectorize
     const size_t tmp = 2 * border_size + 1;
-    const size_t edge_width = (tmp + (EDGE_ALIGNMENT/sizeof(float)) - 1) & ~((EDGE_ALIGNMENT/sizeof(float)) - 1);
+    const size_t corner_width = (tmp + (CORNER_ALIGNMENT/sizeof(float)) - 1) & ~((CORNER_ALIGNMENT/sizeof(float)) - 1);
 
     // fill center
     const size_t col_start = border_size % 128;
@@ -179,12 +179,10 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       }
     }
     
-    // TODO: vectorize
-
-    // fill upper left edge
+    // fill upper left corner
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_read  = upper_left_edge + (row * edge_width);
-      float * restrict cur_row_write = image  + ((row+1) * width + 1);
+      float * restrict cur_row_read  = upper_left_corner + (row * corner_width);
+      float * restrict cur_row_write = __builtin_assume_aligned(image  + ((row+1) * width + 1), MAIN_FIELD_ALIGNMENT);
 
       for(size_t col = 0; col < border_size; col++) {
         cur_row_write[col] = cur_row_read[col];
@@ -201,9 +199,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       }
     }
 
-    // fill upper right edge
+    // fill upper right corner
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_read  = upper_right_edge + (row * edge_width);
+      float * restrict cur_row_read  = upper_right_corner + (row * corner_width);
       float * restrict cur_row_write = image  + ((row+1) * width + nx - border_size + 1);
 
       for(size_t col = 0; col < border_size; col++) {
@@ -250,9 +248,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
     }
 
 
-    // fill lower left edge
+    // fill lower left corner
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_read  = lower_left_edge + ((border_size - row - 1) * edge_width);
+      float * restrict cur_row_read  = lower_left_corner + ((border_size - row - 1) * corner_width);
       float * restrict cur_row_write = image  + (((ny - border_size) + row+1) * width + 1);
 
       for(size_t col = 0; col < border_size; col++) {
@@ -294,9 +292,9 @@ void stencil(const size_t nx, const size_t ny, const size_t width, const size_t 
       }
     }
 
-    // fill lower right edge
+    // fill lower right corner
     for (size_t row = 0; row < border_size; row++) {
-      float * restrict cur_row_read  = lower_right_edge + ((border_size - row - 1) * edge_width);
+      float * restrict cur_row_read  = lower_right_corner + ((border_size - row - 1) * corner_width);
       float * restrict cur_row_write = image  + (((ny-border_size) + row+1) * width + nx - border_size + 1);
 
       for(size_t col = 0; col < border_size; col++) {

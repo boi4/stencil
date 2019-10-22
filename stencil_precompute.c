@@ -252,10 +252,10 @@ struct float_ptr_pair precompute_border(const size_t niters, const size_t offset
 /*
  * black: whether the top-left tile is black
  */
-float *precompute_symmetric_edge(const size_t niters, bool black) {
+float *precompute_symmetric_corner(const size_t niters, bool black) {
   const size_t border_size = niters;
   const size_t width_used = 2 * border_size + 1;
-  const size_t width = (width_used + (EDGE_ALIGNMENT/sizeof(float)) - 1) & ~((EDGE_ALIGNMENT/sizeof(float)) - 1);
+  const size_t width = (width_used + (CORNER_ALIGNMENT/sizeof(float)) - 1) & ~((CORNER_ALIGNMENT/sizeof(float)) - 1);
 
   static float * restrict row_buffer1;
   static float * restrict row_buffer2;
@@ -271,7 +271,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
   // allocate stuff
   float * const restrict field = (float *)__builtin_assume_aligned(mmap(NULL,
                                                               width * width_used * sizeof(float),
-                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), EDGE_ALIGNMENT);
+                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), CORNER_ALIGNMENT);
   if (!field) {
     fprintf(stderr, "Memory Error %d\n", __LINE__);
     exit(-1);
@@ -282,14 +282,14 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
       fprintf(stderr, "Memory Error %d\n", __LINE__);
       exit(-1);
     }
-    row_buffer1 = __builtin_assume_aligned(all_ptr, EDGE_ALIGNMENT);
-    row_buffer2 = __builtin_assume_aligned((float *)all_ptr + width, EDGE_ALIGNMENT);
-    row_buffer3 = __builtin_assume_aligned(row_buffer2 + width, EDGE_ALIGNMENT);
+    row_buffer1 = __builtin_assume_aligned(all_ptr, CORNER_ALIGNMENT);
+    row_buffer2 = __builtin_assume_aligned((float *)all_ptr + width, CORNER_ALIGNMENT);
+    row_buffer3 = __builtin_assume_aligned(row_buffer2 + width, CORNER_ALIGNMENT);
   }
 
   // setup chessboard pattern
   for (size_t row = 0; row < width_used; row++) {
-    float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
+    float * restrict cur_row = __builtin_assume_aligned(field + (row * width), CORNER_ALIGNMENT);
 
     if (black) {
       for (size_t col = 0; col < width; col++) {
@@ -312,7 +312,7 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
     memset(prev_row_bak, 0, sizeof(float) * width);
 
     for (size_t row = 0; row < num_rows; row++) {
-      float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
+      float * restrict cur_row = __builtin_assume_aligned(field + (row * width), CORNER_ALIGNMENT);
 
       memcpy(cur_row_bak, cur_row, width_used * sizeof(float));
 
@@ -324,9 +324,9 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
 
       // row additions
       // Add previous and following line
-      float * restrict const nxt_row = __builtin_assume_aligned(cur_row + width, EDGE_ALIGNMENT);
-      float * restrict const prev    = __builtin_assume_aligned(prev_row_bak, EDGE_ALIGNMENT);
-      float * restrict const rb3     = __builtin_assume_aligned(row_buffer3, EDGE_ALIGNMENT);
+      float * restrict const nxt_row = __builtin_assume_aligned(cur_row + width, CORNER_ALIGNMENT);
+      float * restrict const prev    = __builtin_assume_aligned(prev_row_bak, CORNER_ALIGNMENT);
+      float * restrict const rb3     = __builtin_assume_aligned(row_buffer3, CORNER_ALIGNMENT);
       for (size_t col = 0; col < row; col++) {
         tmp = prev[col] + nxt_row[col] + rb3[col];
         cur_row[col] = tmp * 0.1f;
@@ -359,10 +359,10 @@ float *precompute_symmetric_edge(const size_t niters, bool black) {
 
 
 // used only when nx % 128 != 0 or ny % 128 != 0
-float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t yoff) {
+float *precompute_full_corner(const size_t niters, const size_t xoff, const size_t yoff) {
   const size_t border_size = niters;
   const size_t height = 2 * border_size + 1;
-  const size_t width = (height + (EDGE_ALIGNMENT/sizeof(float)) - 1) & ~((EDGE_ALIGNMENT/sizeof(float)) - 1);
+  const size_t width = (height + (CORNER_ALIGNMENT/sizeof(float)) - 1) & ~((CORNER_ALIGNMENT/sizeof(float)) - 1);
 
   static float * restrict row_buffer1;
   static float * restrict row_buffer2;
@@ -378,7 +378,7 @@ float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t
   // allocate stuff
   float * const restrict field = (float *)__builtin_assume_aligned(mmap(NULL,
                                                               width * height * sizeof(float),
-                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), EDGE_ALIGNMENT);
+                                                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0), CORNER_ALIGNMENT);
 
   if (!field) {
     fprintf(stderr, "Memory Error %d\n", __LINE__);
@@ -390,14 +390,14 @@ float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t
       fprintf(stderr, "Memory Error %d\n", __LINE__);
       exit(-1);
     }
-    row_buffer1 = __builtin_assume_aligned(all_ptr, EDGE_ALIGNMENT);
-    row_buffer2 = __builtin_assume_aligned((float *)all_ptr + width, EDGE_ALIGNMENT);
-    row_buffer3 = __builtin_assume_aligned(row_buffer2 + width, EDGE_ALIGNMENT);
+    row_buffer1 = __builtin_assume_aligned(all_ptr, CORNER_ALIGNMENT);
+    row_buffer2 = __builtin_assume_aligned((float *)all_ptr + width, CORNER_ALIGNMENT);
+    row_buffer3 = __builtin_assume_aligned(row_buffer2 + width, CORNER_ALIGNMENT);
   }
 
   // setup chessboard pattern
   for (size_t row = yoff; row < height + yoff; row++) {
-    float * restrict cur_row = __builtin_assume_aligned(field + ((row-yoff) * width), EDGE_ALIGNMENT);
+    float * restrict cur_row = __builtin_assume_aligned(field + ((row-yoff) * width), CORNER_ALIGNMENT);
 
     for (size_t col = xoff; col < height + xoff; col++) {
        cur_row[col-xoff] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
@@ -412,7 +412,7 @@ float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t
     memset(prev_row_bak, 0, sizeof(float) * width);
 
     for (size_t row = 0; row < num_rows; row++) {
-      float * restrict cur_row = __builtin_assume_aligned(field + (row * width), EDGE_ALIGNMENT);
+      float * restrict cur_row = __builtin_assume_aligned(field + (row * width), CORNER_ALIGNMENT);
 
       memcpy(cur_row_bak, cur_row, num_rows * sizeof(float));
 
@@ -424,9 +424,9 @@ float *precompute_full_edge(const size_t niters, const size_t xoff, const size_t
 
       // row additions
       // Add previous and following line
-      float * restrict const nxt_row = __builtin_assume_aligned(cur_row + width, EDGE_ALIGNMENT);
-      float * restrict const prev    = __builtin_assume_aligned(prev_row_bak, EDGE_ALIGNMENT);
-      float * restrict const rb3     = __builtin_assume_aligned(row_buffer3, EDGE_ALIGNMENT);
+      float * restrict const nxt_row = __builtin_assume_aligned(cur_row + width, CORNER_ALIGNMENT);
+      float * restrict const prev    = __builtin_assume_aligned(prev_row_bak, CORNER_ALIGNMENT);
+      float * restrict const rb3     = __builtin_assume_aligned(row_buffer3, CORNER_ALIGNMENT);
       for (size_t col = 0; col < num_rows; col++) {
         tmp = prev[col] + nxt_row[col] + rb3[col];
         cur_row[col] = tmp * 0.1f;
