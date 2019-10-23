@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
   float * restrict image = (float *)((char *)all + 0xffc);
                             
   // Set the input image
-  //init_image(nx, ny, width, height, image);
+  init_image(nx, ny, width, height, image);
 
   // Call the stencil kernel
   double tic = wtime();
@@ -75,18 +75,18 @@ int main(int argc, char* argv[])
   printf(" runtime: %lf s\n", toc - tic);
   printf("------------------------------------\n");
 
- // output_image(OUTPUT_FILE, nx, ny, width, height, image);
+  output_image(OUTPUT_FILE, nx, ny, width, height, image);
 }
 
 
 size_t get_precomputation_costs(const size_t nx, const size_t ny, const size_t niters) {
   if (nx % 64 == 0 && ny % 64 == 0) {
-    return 96 * niters + 32 * 32 + (size_t)((niters * 1.5)*(niters*1.5 + 1)/((nx + ny) % 128 ? 1 : 2));
+    return 96 * niters + 32 * 32 + (size_t)((niters * 1.5 + 0.5)*(niters*1.5 + 1.5)/((nx + ny) % 128 ? 1 : 2));
   } else {
     if (nx % 64 == ny % 64) {
-      return 3 * (size_t)(niters * 1.5 * niters * 1.5) + (niters*1.5 * (niters * 1.5 + 1))/2 + 32 * 32 + 96 * niters;
+      return 3 * (size_t)((niters * 1.5 + 0.5)*(niters * 1.5 + 0.5)) + (niters*1.5 * (niters * 1.5 + 1.5))/2 + 32 * 32 + 96 * (1.5 * niters + 0.5);
     } else {
-      return 3 * (size_t)(niters * 1.5 * niters * 1.5) + (niters*1.5 * (niters * 1.5 + 1))/2 + 32 * 32 + 3 * 96 * niters;
+      return 3 * (size_t)((niters * 1.5 + 0.5) * (niters * 1.5 + 0.5)) + ((niters*1.5 + 0.5)* (niters * 1.5 + 1.5))/2 + 32 * 32 + 3 * 96 * (1.5 * niters +0.5);
     }
   }
 }
