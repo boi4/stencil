@@ -11,14 +11,14 @@
 #SBATCH --exclusive
 
 # Print some information about the job
-#echo "Running on host $(hostname)"
-#echo "Time is $(date)"
-#echo "Directory is $(pwd)"
-#echo "Slurm job ID is $SLURM_JOB_ID"
-#echo
-#echo "This job runs on the following machines:"
-#echo "$SLURM_JOB_NODELIST" | uniq
-#echo
+echo "Running on host $(hostname)"
+echo "Time is $(date)"
+echo "Directory is $(pwd)"
+echo "Slurm job ID is $SLURM_JOB_ID"
+echo
+echo "This job runs on the following machines:"
+echo "$SLURM_JOB_NODELIST" | uniq
+echo
 
 # Enable using `srun` with Intel MPI
 #export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
@@ -27,6 +27,11 @@
 #srun ./stencil 1024 1024 100
 
 echo starting job
+
+#advixe-cl -collect roofline -project-dir ./ -- ./out/iccadv 8000 8000 100
+#advixe-cl -collect=survery -project-dir=./ -- ./out/iccadv 8000 8000 100
+#advixe-cl -collect=tripcounts --flop -project-dir=./ -- ./out/iccadv 8000 8000 100
+
 #perf stat   ./out/iccofast 1024 1024 100
 #perf record ./out/iccofast 1024 1024 100
 #perf report --stdio

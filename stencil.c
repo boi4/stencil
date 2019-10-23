@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
   float * restrict image = (float *)((char *)all + 0xffc);
                             
   // Set the input image
-  init_image(nx, ny, width, height, image);
+  //init_image(nx, ny, width, height, image);
 
   // Call the stencil kernel
   double tic = wtime();
@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
   printf(" runtime: %lf s\n", toc - tic);
   printf("------------------------------------\n");
 
-  output_image(OUTPUT_FILE, nx, ny, width, height, image);
+ // output_image(OUTPUT_FILE, nx, ny, width, height, image);
 }
 
 
@@ -334,14 +334,14 @@ void stencil_full(const size_t nx, const size_t ny, const size_t width, const si
   float tmp;
 
   void *all_ptr = NULL;
-  const size_t aligned = (nx + 31) & ~31;
-  if (posix_memalign(&all_ptr, 32, aligned*3*sizeof(float))) {
+  const size_t aligned = (nx + 63) & ~63;
+  if (posix_memalign(&all_ptr, 64, aligned*3*sizeof(float))) {
     fprintf(stderr, "Memory Error\n");
     exit(-1);
   }
-  float * restrict row_buffer1 = __builtin_assume_aligned((float *)all_ptr, 32);
-  float * restrict row_buffer2 = __builtin_assume_aligned(row_buffer1 + aligned, 32);
-  float * restrict row_buffer3 = __builtin_assume_aligned(row_buffer2 + aligned, 32);
+  float * restrict row_buffer1 = __builtin_assume_aligned((float *)all_ptr, 64);
+  float * restrict row_buffer2 = __builtin_assume_aligned(row_buffer1 + aligned, 64);
+  float * restrict row_buffer3 = __builtin_assume_aligned(row_buffer2 + aligned, 64);
 
   float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
 
