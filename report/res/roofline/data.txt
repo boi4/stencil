@@ -1,0 +1,467 @@
+Original:
+===============
+5.839s in loop,  64%
+Dynamic Instruction Mix Summary
+Memory
+46% (16567705600)
+Scalar
+46% (16567705600)
+SSE
+14% (5033164800)
+x86
+32% (11534540800)
+Compute
+26% (9437388800)
+Scalar
+26% (9437388800)
+SSE
+8% (2936012800)
+x86
+18% (6501376000)
+Mixed
+9% (3145728000)
+Scalar
+9% (3145728000)
+x86
+9% (3145728000)
+Other
+19% (6711296000)
+
+
+GFLOP 	2.94	-	-
+GFLOPS 	0.50
+AI 	0.03
+Mask Utilization 	-
+L1 Gb 	1.02e+02	-	-
+L1 Gb/s 	17.53
+Elapsed Time 	5.84s	-	-
+
+
+
+Row
+===============
+Loop in stencil
+
+Scalar
+4.500s
+Total time
+4.500s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+46% (16567705600)
+Scalar
+46% (16567705600)
+SSE
+14% (5033164800)
+x86
+32% (11534540800)
+Compute
+26% (9437388800)
+Scalar
+26% (9437388800)
+SSE
+8% (2936012800)
+x86
+18% (6501376000)
+Mixed
+9% (3145728000)
+Scalar
+9% (3145728000)
+x86
+9% (3145728000)
+Other
+19% (6711296000)
+
+
+	Per loop	Per Iteration	Per Instance
+GFLOP 	2.94	-	-
+GFLOPS 	0.65
+AI 	0.03
+Mask Utilization 	-
+L1 Gb 	1.02e+02	-	-
+L1 Gb/s 	22.74
+Elapsed Time 	4.50s	-	-
+
+
+
+Vectorized
+=====================
+Loop 1
+
+Loop in main
+
+Vectorized (Body)
+0.900s
+Total time
+AVX
+Instruction Set
+0.900s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+6% (26112000)
+Vector
+6% (26112000)
+AVX
+6% (26112000)
+Compute
+56% (261120000)
+Vector
+50% (235008000)
+AVX
+50% (235008000)
+Scalar
+6% (26112000)
+x86
+6% (26112000)
+Mixed
+28% (130560000)
+Vector
+28% (130560000)
+AVX
+28% (130560000)
+Other
+10% (52224000)
+
+
+Per loop	Per Iteration	Per Instance
+GFLOP 	1.46	-	-
+GFLOPS 	1.62
+AI 	0.29
+Mask Utilization 	-
+L1 Gb 	5.01	-	-
+L1 Gb/s 	5.57
+Elapsed Time 	0.90s	-	-
+
+
+Loop2
+
+Loop in main
+
+Vectorized (Body)
+0.890s
+Total time
+AVX
+Instruction Set
+0.890s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+6% (26112000)
+Vector
+6% (26112000)
+AVX
+6% (26112000)
+Compute
+56% (261120000)
+Vector
+50% (235008000)
+AVX
+50% (235008000)
+Scalar
+6% (26112000)
+x86
+6% (26112000)
+Mixed
+28% (130560000)
+Vector
+28% (130560000)
+AVX
+28% (130560000)
+Other
+10% (52224000)
+
+
+GFLOP 	1.46	-	-
+GFLOPS 	1.64
+AI 	0.29
+Mask Utilization 	-
+L1 Gb 	5.01	-	-
+L1 Gb/s 	5.63
+Elapsed Time 	0.89s	-	-
+
+
+float
+=============
+Loop in main
+
+Vectorized (Body)
+0.890s
+Total time
+AVX
+Instruction Set
+0.890s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+3% (26112000)
+Vector
+3% (26112000)
+AVX
+3% (26112000)
+Compute
+47% (391680000)
+Vector
+44% (365568000)
+AVX
+44% (365568000)
+Scalar
+3% (26112000)
+x86
+3% (26112000)
+Other
+50% (417792000)
+
+	Per loop	Per Iteration	Per Instance
+GFLOP 	1.46	-	-
+GFLOPS 	1.64
+AI 	0.58
+Mask Utilization 	-
+L1 Gb 	2.51	-	-
+L1 Gb/s 	2.82
+Elapsed Time 	0.89s	-	-
+
+
+
+loop 2 same
+
+
+float_cheap
+===========
+loop 1
+
+AVX; FMA
+Instruction Set
+0.050s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+23% (27801600)
+Vector
+22% (26316800)
+AVX
+22% (26316800)
+Scalar
+1% (1484800)
+AVX
+1% (1228800)
+Other
+< 1% (256000)
+Compute
+18% (20992000)
+Vector
+11% (13158400)
+AVX
+11% (13158400)
+Scalar
+7% (7833600)
+AVX
+1% (614400)
+x86
+6% (7219200)
+Mixed
+46% (55091200)
+Vector
+44% (52633600)
+AVX
+33% (39475200)
+FMA
+11% (13158400)
+Scalar
+2% (2457600)
+AVX
+2% (1843200)
+FMA
+1% (614400)
+Other
+13% (15513600)
+
+
+	Per loop	Per Iteration	Per Instance
+GFLOP 	0.63	-	-
+GFLOPS 	12.58
+AI 	0.25
+Mask Utilization 	-
+L1 Gb 	2.52	-	-
+L1 Gb/s 	50.30
+Elapsed Time 	0.05s	-	-
+
+
+
+looop 2
+
+Vectorized (Body; Peeled; Remainder)
+0.050s
+Total time
+AVX; FMA
+Instruction Set
+0.050s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+23% (27801600)
+Vector
+22% (26316800)
+AVX
+22% (26316800)
+Scalar
+1% (1484800)
+AVX
+1% (1228800)
+Other
+< 1% (256000)
+Compute
+17% (20736000)
+Vector
+11% (13158400)
+AVX
+11% (13158400)
+Scalar
+6% (7577600)
+AVX
+1% (614400)
+x86
+6% (6963200)
+Mixed
+46% (55091200)
+Vector
+44% (52633600)
+AVX
+33% (39475200)
+FMA
+11% (13158400)
+Scalar
+2% (2457600)
+AVX
+2% (1843200)
+FMA
+1% (614400)
+Other
+14% (15257600)
+
+GFLOP 	0.63	-	-
+GFLOPS 	12.59
+AI 	0.25
+Mask Utilization 	-
+L1 Gb 	2.52	-	-
+L1 Gb/s 	50.36
+Elapsed Time 	0.05s	-	-
+
+
+
+inplace
+===============
+
+loop 1 l 93
+
+Vectorized (Body; Peeled; Remainder)
+0.050s
+Total time
+AVX
+Instruction Set
+0.050s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+26% (55091200)
+Vector
+25% (52633600)
+AVX
+25% (52633600)
+Scalar
+1% (2457600)
+AVX
+1% (2457600)
+Compute
+33% (69222400)
+Vector
+13% (26316800)
+AVX
+13% (26316800)
+Scalar
+20% (42905600)
+AVX
+1% (1228800)
+x86
+20% (41676800)
+Mixed
+26% (55091200)
+Vector
+25% (52633600)
+AVX
+25% (52633600)
+Scalar
+1% (2457600)
+AVX
+1% (2457600)
+Other
+15% (30515200)
+
+
+
+Per loop	Per Iteration	Per Instance
+GFLOP 	0.63	-	-
+GFLOPS 	12.58
+AI 	0.19
+Mask Utilization 	-
+L1 Gb 	3.36	-	-
+L1 Gb/s 	67.11
+Elapsed Time 	0.05s	-	-
+
+
+
+loop 2, l 81
+
+
+
+Vectorized (Body; Peeled; Remainder)
+0.040s
+Total time
+AVX; FMA
+Instruction Set
+0.040s
+Self time
+Dynamic Instruction Mix Summary
+Memory
+35% (54886400)
+Vector
+34% (52428800)
+AVX
+34% (52428800)
+Scalar
+1% (2457600)
+AVX
+2% (2457600)
+Compute
+10% (14950400)
+Scalar
+10% (14950400)
+x86
+10% (14950400)
+Mixed
+35% (54886400)
+Vector
+34% (52428800)
+AVX
+17% (26214400)
+FMA
+17% (26214400)
+Scalar
+1% (2457600)
+AVX
+1% (1228800)
+FMA
+1% (1228800)
+Other
+20% (31129600)
+
+
+
+GFLOP 	0.63	-	-
+GFLOPS 	15.70
+AI 	0.19
+Mask Utilization 	-
+L1 Gb 	3.35	-	-
+L1 Gb/s 	83.75
+Elapsed Time 	0.04s	-	-
