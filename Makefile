@@ -3,7 +3,19 @@
 LDFLAGS=
 CFLAGS=-mtune=native -march=broadwell
 
-all: out/original out/o1 out/o2 out/o3 out/ofast out/clangoriginal out/clango1 out/clango2 out/clango3 out/clangofast out/icco3 out/iccofast
+
+
+all: stencil
+
+stencil: stencil.c stencil_precompute.c
+	icc -simd ${CFLAGS} -Ofast $^ -o $@ ${LDFLAGS}
+
+
+
+
+
+
+#all: out/original out/o1 out/o2 out/o3 out/ofast out/clangoriginal out/clango1 out/clango2 out/clango3 out/clangofast out/icco3 out/iccofast
 
 gcc: out/original out/o1 out/o2 out/o3 out/ofast 
 
@@ -85,7 +97,7 @@ out/clangofast: stencil.c stencil_precompute.c
 out/icco3: stencil.c stencil_precompute.c
 	icc -std=gnu99 -Wall ${CFLAGS} -O3 $^ -o $@ ${LDFLAGS}
 out/iccofast: stencil.c stencil_precompute.c
-	icc -std=gnu99 -simd -Wall ${CFLAGS} -Ofast $^ -o $@ ${LDFLAGS}
+	icc -simd ${CFLAGS} -Ofast $^ -o $@ ${LDFLAGS}
 out/iccadv: stencil.c stencil_precompute.c
 	icc -std=gnu99 -g -simd -qopt-report=5 -Wall ${CFLAGS} -Ofast $^ -o $@ ${LDFLAGS}
 
