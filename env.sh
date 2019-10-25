@@ -4,3 +4,4 @@ module add languages/intel/2018-u3
 module add Clang/3.8.1-GCC-5.4.0-2.26
 module add ncurses
 module add languages/anaconda3/3.6.5
+module add tools/git/2.18.0
