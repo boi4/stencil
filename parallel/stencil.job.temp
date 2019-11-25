@@ -39,3 +39,5 @@ echo
 
 
 python3 ./bench.py
+
+echo "done benching"

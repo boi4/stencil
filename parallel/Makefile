@@ -11,7 +11,7 @@ all: out/mpistencil
 
 # =========================== MPI =======================================
 out/mpistencil: stencil.c
-	mpiicc ${CFLAGS} -simd -Ofast $^ -o $@ ${LDFLAGS}
+	mpiicc ${CFLAGS} -qopenmp -simd -Ofast $^ -o $@ ${LDFLAGS}
 
 
 

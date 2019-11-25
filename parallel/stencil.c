@@ -7,8 +7,13 @@
 
 #include "stencil.h"
 
+void stencil(const int nx, const int ny, const int width, const int height,
+             float* image, float* tmp_image);
 
-void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, size_t niters);
+void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, float *tmp_image, size_t niters);
+
+void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, size_t niters);
+
 void init_image(const int nx, const int ny, const int width, const int height, float* image);
 void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
@@ -43,7 +48,7 @@ int main(int argc, char* argv[])
   // we allocate an extra page, to put the field so on the memory that actually the first 'seen' block is aligned
   size_t image_size = ((width * height * sizeof(float)) + 0x2000LU) & (~(size_t)0xfffLU);
 
-  void * restrict all = (float *)mmap(NULL, image_size,
+  void * restrict all = (float *)mmap(NULL, 2 * image_size,
                                PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
                                -1, 0);
 
@@ -52,6 +57,7 @@ int main(int argc, char* argv[])
     exit(-1);
   }
   float * restrict image = (float *)((char *)all + 0xffc);
+  float * restrict tmp_image = (float *)((char *)all + image_size + 0xffc);
                             
   // Set the input image
   init_image(nx, ny, width, height, image);
@@ -59,7 +65,8 @@ int main(int argc, char* argv[])
   // Call the stencil kernel
   double tic = wtime();
 
-  stencil_full(nx, ny, width, height, image, niters);
+  stencil_full(nx, ny, width, height, image, tmp_image, niters);
+  //stencil_full_inplace(nx, ny, width, height, image, niters);
 
   double toc = wtime();
 
@@ -76,7 +83,7 @@ int main(int argc, char* argv[])
 /* this function just stencils the whole field, assuming black borders around it
  * only used if precomputing isn't faster
  */
-void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, const size_t niters)
+void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, const size_t niters)
 {
   float tmp;
 
@@ -131,6 +138,31 @@ void stencil_full(const size_t nx, const size_t ny, const size_t width, const si
 
   free(all_ptr);
 }
+
+
+void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, float *tmp_image, const size_t niters) {
+  for (int t = 0; t < niters/2; ++t) {
+    stencil(nx, ny, width, height, image, tmp_image);
+    stencil(nx, ny, width, height, tmp_image, image);
+  }
+}
+
+void stencil(const int nx, const int ny, const int width, const int height,
+             float* image, float* tmp_image)
+{
+  for (int i = 1; i < nx + 1; ++i) {
+    for (int j = 1; j < ny + 1; ++j) {
+      float tmp;
+      tmp  = image[j     + i       * height] * 6.0f;
+      tmp += image[j     + (i - 1) * height];
+      tmp += image[j     + (i + 1) * height];
+      tmp += image[j - 1 + i       * height];
+      tmp += image[j + 1 + i       * height];
+      tmp_image[j + i * height] = tmp *0.1f;
+    }
+  }
+}
+
 
 
 // Create the input image

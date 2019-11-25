@@ -100,6 +100,6 @@ def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer):
         for nthreads in threaditer:
             job = Job(ncpus, nthreads, outname, [str(nx), str(ny), str(niters)])
             stdout, stderr = run_job(job)
-            print(ncpus, get_runtime(stdout))
+            print(ncpus, nthreads, get_runtime(stdout))
 
-test_cpus_range("./out/mpistencil", 1024, 1024 , 100, range(1, 56, 2), range(1,10,2))
+test_cpus_range("./out/mpistencil", 1024, 1024 , 100, range(1, 56, 4), range(1,8+1,1))
