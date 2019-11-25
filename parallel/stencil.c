@@ -7,8 +7,6 @@
 
 #include <mpi.h>
 
-#include "stencil.h"
-
 // Define output file name
 #define OUTPUT_FILE "stencil.pgm"
 #define WHITE_FLOAT 100.0f
@@ -24,31 +22,42 @@ struct float_ptr_pair {
   float * ptr2;
 };
 
+struct dimensions {
+  size_t nx;
+  size_t ny;
+  size_t width;
+  size_t height;
+};
 
-void stencil(const int nx, const int ny, const int width, const int height,
-             float* image, float* tmp_image);
 
-void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, float *tmp_image, size_t niters);
+void stencil(struct dimensions const d, float* image, float* tmp_image);
 
-void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, size_t niters);
+void stencil_full(struct dimensions const d, float* image, float *tmp_image, size_t niters);
 
-void init_image(const int nx, const int ny, const int width, const int height, float* image);
-void output_image(const char* file_name, const int nx, const int ny,
-                  const int width, const int height, float* image);
+void stencil_full_inplace(struct dimensions const d, float* image, size_t niters);
+
+void init_image(struct dimensions const d, float* image);
+
+void output_image(const char* file_name, struct dimensions const d, float* image);
+
 double wtime(void);
+
+
+
+
 
 
 int nprocs, rank;
 
 
-void master(const size_t nx, const size_t ny, const size_t niters, const size_t width, const size_t height) {
+void master(struct dimensions const d, size_t niters) {
   // Set the input image
-  init_image(nx, ny, width, height, image);
+  //init_image(d, image);
 
   // Call the stencil kernel
   double tic = wtime();
 
-  stencil_full(nx, ny, width, height, image, tmp_image, niters);
+  //stencil_full(d, image, tmp_image, niters);
   //stencil_full_inplace(nx, ny, width, height, image, niters);
 
   double toc = wtime();
@@ -58,12 +67,12 @@ void master(const size_t nx, const size_t ny, const size_t niters, const size_t 
   printf(" runtime: %lf s\n", toc - tic);
   printf("------------------------------------\n");
 
-  output_image(OUTPUT_FILE, nx, ny, width, height, image);
+  //output_image(OUTPUT_FILE, d, image);
 }
 
 
 
-void worker(const size_t nx, const size_t ny, const size_t niters, const size_t width, const size_t height) {
+void worker(struct dimensions const d, const size_t niters) {
 
 }
 
@@ -94,11 +103,11 @@ int main(int argc, char* argv[])
   //printf("%d %d\n", nprocs, rank);
   switch(rank) {
     case 0:
-      master(nx, ny, niters, width, height);
+      master((struct dimensions){nx, ny, width, height}, niters);
       break;
 
     default:
-      worker(nx, ny, niters, width, height);
+      worker((struct dimensions){nx, ny, width, height}, niters);
       break;
   }
 }
@@ -107,24 +116,23 @@ int main(int argc, char* argv[])
 
 
 
-void stencil(const int nx, const int ny, const int width, const int height,
-             float* image, float* tmp_image) {
-  for (int i = 1; i < nx + 1; ++i) {
-    for (int j = 1; j < ny + 1; ++j) {
+void stencil(struct dimensions const d, float* image, float* tmp_image) {
+  for (int i = 1; i < d.nx + 1; ++i) {
+    for (int j = 1; j < d.ny + 1; ++j) {
       float tmp;
-      tmp  = image[j     + i       * height] * 6.0f;
-      tmp += image[j     + (i - 1) * height];
-      tmp += image[j     + (i + 1) * height];
-      tmp += image[j - 1 + i       * height];
-      tmp += image[j + 1 + i       * height];
-      tmp_image[j + i * height] = tmp *0.1f;
+      tmp  = image[j     + i       * d.height] * 6.0f;
+      tmp += image[j     + (i - 1) * d.height];
+      tmp += image[j     + (i + 1) * d.height];
+      tmp += image[j - 1 + i       * d.height];
+      tmp += image[j + 1 + i       * d.height];
+      tmp_image[j + i * d.height] = tmp *0.1f;
     }
   }
 }
 
 
 
-void init_rows(const size_t nx, const size_t ny, const size_t width, const size_t height, float *image, size_t start_row, size_t nrows) {
+void init_rows(struct dimensions const d, float *image, size_t start_row, size_t nrows) {
 
 }
 
@@ -133,12 +141,12 @@ void init_rows(const size_t nx, const size_t ny, const size_t width, const size_
 /* this function just stencils the whole field, assuming black borders around it
  * only used if precomputing isn't faster
  */
-void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, const size_t niters)
+void stencil_full_inplace(struct dimensions const d, float* image, const size_t niters)
 {
   float tmp;
 
   void *all_ptr = NULL;
-  const size_t aligned = (nx + 63) & ~63;
+  const size_t aligned = (d.nx + 63) & ~63;
   if (posix_memalign(&all_ptr, 64, aligned*3*sizeof(float))) {
     fprintf(stderr, "Memory Error\n");
     exit(-1);
@@ -155,26 +163,26 @@ void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, 
   // start stencilin'
   for (size_t i = 0; i < niters; i++) {
 
-    memset(prev_row_bak, 0, nx * sizeof(float)); // first 'invisible' row is black
+    memset(prev_row_bak, 0, d.nx * sizeof(float)); // first 'invisible' row is black
 
-    for (size_t row = 0; row < ny; row++) {
-      float * restrict cur_row = image + ((row+1) * width) + 1;
+    for (size_t row = 0; row < d.ny; row++) {
+      float * restrict cur_row = image + ((row+1) * d.width) + 1;
 
       // stencil over the horizontal
       row_buffer3[ 0] = 0.0f + cur_row[ 0] * 6.0f + cur_row[ 1];
-      for (size_t col = 1; col < nx-1; col++) {
+      for (size_t col = 1; col < d.nx-1; col++) {
         row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
       }
-      row_buffer3[nx-1] = 0.0f + cur_row[nx-1] * 6.0f + cur_row[nx-2];
+      row_buffer3[d.nx-1] = 0.0f + cur_row[d.nx-1] * 6.0f + cur_row[d.nx-2];
       
-      for (size_t i = 0; i < nx; i++) {
+      for (size_t i = 0; i < d.nx; i++) {
         cur_row_bak[i] = cur_row[i];
       }
 
       // row additions
       // Add previous and following line
-      float * restrict nxt_row = cur_row + width;
-      for (size_t col = 0; col < nx; col++) {
+      float * restrict nxt_row = cur_row + d.width;
+      for (size_t col = 0; col < d.nx; col++) {
         tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
         cur_row[col] = tmp * 0.1f;
       }
@@ -193,28 +201,27 @@ void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, 
 
 
 
-void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, float *tmp_image, const size_t niters) {
+void stencil_full(struct dimensions const d, float* image, float *tmp_image, const size_t niters) {
   for (int t = 0; t < niters/2; ++t) {
-    stencil(nx, ny, width, height, image, tmp_image);
-    stencil(nx, ny, width, height, tmp_image, image);
+    stencil(d, image, tmp_image);
+    stencil(d, tmp_image, image);
   }
 }
 
 
 // Create the input image
-void init_image(const int nx, const int ny, const int width, const int height,
-                float *image)
+void init_image(struct dimensions const d, float *image)
 {
   const int tile_size = 64;
   // checkerboard pattern
-  for (int yb = 0; yb < ny; yb += tile_size) {
-    for (int xb = 0; xb < nx; xb += tile_size) {
+  for (int yb = 0; yb < d.ny; yb += tile_size) {
+    for (int xb = 0; xb < d.nx; xb += tile_size) {
       if ((xb + yb) % (tile_size * 2)) {
-        const int ylim = (yb + tile_size > ny) ? ny : yb + tile_size;
-        const int xlim = (xb + tile_size > nx) ? nx : xb + tile_size;
+        const int ylim = (yb + tile_size > d.ny) ? d.ny : yb + tile_size;
+        const int xlim = (xb + tile_size > d.nx) ? d.nx : xb + tile_size;
         for (int y = yb + 1; y < ylim + 1; y++) {
           for (int x = xb + 1; x < xlim + 1; x++) {
-            image[x + y * width] = WHITE_FLOAT;
+            image[x + y * d.width] = WHITE_FLOAT;
           }
         }
       }
@@ -225,8 +232,7 @@ void init_image(const int nx, const int ny, const int width, const int height,
 
 
 // Routine to output the image in Netpbm grayscale binary image format
-void output_image(const char* file_name, const int nx, const int ny,
-                  const int width, const int height, float* image)
+void output_image(const char* file_name, struct dimensions const d, float* image)
 {
   // Open output file
   FILE* fp = fopen(file_name, "w");
@@ -236,22 +242,22 @@ void output_image(const char* file_name, const int nx, const int ny,
   }
 
   // Ouptut image header
-  fprintf(fp, "P5 %d %d 255\n", nx, ny);
+  fprintf(fp, "P5 %d %d 255\n", d.nx, d.ny);
 
   // Calculate maximum value of image
   // This is used to rescale the values
   // to a range of 0-255 for output
   float maximum = 0.0;
-  for (int y = 1; y < ny + 1; y++) {
-    for (int x = 1; x < nx + 1; x++) {
-      if (image[x + y * width] > maximum) maximum = image[x + y * width];
+  for (int y = 1; y < d.ny + 1; y++) {
+    for (int x = 1; x < d.nx + 1; x++) {
+      if (image[x + y * d.width] > maximum) maximum = image[x + y * d.width];
     }
   }
 
   // Output image, converting to numbers 0-255
-  for (int y = 1; y < ny + 1; y++) {
-    for (int x = 1; x < nx + 1; x++) {
-      fputc((char)(255.0f * image[x + y * width] / maximum), fp);
+  for (int y = 1; y < d.ny + 1; y++) {
+    for (int x = 1; x < d.nx + 1; x++) {
+      fputc((char)(255.0f * image[x + y * d.width] / maximum), fp);
     }
   }
 
