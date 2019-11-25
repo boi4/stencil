@@ -5,6 +5,8 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 
+#include <mpi.h>
+
 #include "stencil.h"
 
 void stencil(const int nx, const int ny, const int width, const int height,
@@ -19,46 +21,11 @@ void output_image(const char* file_name, const int nx, const int ny,
                   const int width, const int height, float* image);
 double wtime(void);
 
-// debug stuff, also in stencil_precompute.c
-extern void dump_field(char *fname, int nx, int ny, float *field);
-extern void print_row(float *row, size_t length);
+
+int nprocs, rank;
 
 
-
-
-int main(int argc, char* argv[])
-{
-  // Check usage
-  if (argc != 4) {
-    fprintf(stderr, "Usage: %s nx ny niters\n", argv[0]);
-    exit(EXIT_FAILURE);
-  }
-
-  // Initiliase problem dimensions from command line arguments
-  size_t nx     =   strtoul(argv[1], NULL, 0);
-  size_t ny     =   strtoul(argv[2], NULL, 0);
-  size_t niters = 2*strtoul(argv[3], NULL, 0);
-
-  // we pad width, so each row is 128 bit aligned
-  // stencil
-  size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
-  size_t height = ny + 2;
-
-  // Allocate the image
-  // we allocate an extra page, to put the field so on the memory that actually the first 'seen' block is aligned
-  size_t image_size = ((width * height * sizeof(float)) + 0x2000LU) & (~(size_t)0xfffLU);
-
-  void * restrict all = (float *)mmap(NULL, 2 * image_size,
-                               PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
-                               -1, 0);
-
-  if (!all) {
-    fprintf(stderr, "Memory Error\n");
-    exit(-1);
-  }
-  float * restrict image = (float *)((char *)all + 0xffc);
-  float * restrict tmp_image = (float *)((char *)all + image_size + 0xffc);
-                            
+void master(const size_t nx, const size_t ny, const size_t niters, const size_t width, const size_t height) {
   // Set the input image
   init_image(nx, ny, width, height, image);
 
@@ -76,6 +43,73 @@ int main(int argc, char* argv[])
   printf("------------------------------------\n");
 
   output_image(OUTPUT_FILE, nx, ny, width, height, image);
+}
+
+
+
+void worker(const size_t nx, const size_t ny, const size_t niters, const size_t width, const size_t height) {
+
+}
+
+
+
+int main(int argc, char* argv[])
+{
+  // Check usage
+  if (argc != 4) {
+    fprintf(stderr, "Usage: %s nx ny niters\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  // Initiliase problem dimensions from command line arguments
+  size_t nx     =   strtoul(argv[1], NULL, 0);
+  size_t ny     =   strtoul(argv[2], NULL, 0);
+  size_t niters = 2*strtoul(argv[3], NULL, 0);
+
+  // we pad width, so each row is 128 bit aligned
+  // stencil
+  size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
+  size_t height = ny + 2;
+
+  //printf("%d %d\n", nprocs, rank);
+  switch(rank) {
+    case 0:
+      master(nx, ny, niters, width, height);
+      break;
+
+    default:
+      worker(nx, ny, niters, width, height);
+      break;
+  }
+}
+
+
+
+
+
+void stencil(const int nx, const int ny, const int width, const int height,
+             float* image, float* tmp_image) {
+  for (int i = 1; i < nx + 1; ++i) {
+    for (int j = 1; j < ny + 1; ++j) {
+      float tmp;
+      tmp  = image[j     + i       * height] * 6.0f;
+      tmp += image[j     + (i - 1) * height];
+      tmp += image[j     + (i + 1) * height];
+      tmp += image[j - 1 + i       * height];
+      tmp += image[j + 1 + i       * height];
+      tmp_image[j + i * height] = tmp *0.1f;
+    }
+  }
+}
+
+
+
+void init_rows(const size_t nx, const size_t ny, const size_t width, const size_t height, float *image, size_t start_row, size_t nrows) {
+
 }
 
 
@@ -140,29 +174,15 @@ void stencil_full_inplace(const size_t nx, const size_t ny, const size_t width, 
 }
 
 
+
+
+
 void stencil_full(const size_t nx, const size_t ny, const size_t width, const size_t height, float* image, float *tmp_image, const size_t niters) {
   for (int t = 0; t < niters/2; ++t) {
     stencil(nx, ny, width, height, image, tmp_image);
     stencil(nx, ny, width, height, tmp_image, image);
   }
 }
-
-void stencil(const int nx, const int ny, const int width, const int height,
-             float* image, float* tmp_image)
-{
-  for (int i = 1; i < nx + 1; ++i) {
-    for (int j = 1; j < ny + 1; ++j) {
-      float tmp;
-      tmp  = image[j     + i       * height] * 6.0f;
-      tmp += image[j     + (i - 1) * height];
-      tmp += image[j     + (i + 1) * height];
-      tmp += image[j - 1 + i       * height];
-      tmp += image[j + 1 + i       * height];
-      tmp_image[j + i * height] = tmp *0.1f;
-    }
-  }
-}
-
 
 
 // Create the input image
