@@ -9,6 +9,22 @@
 
 #include "stencil.h"
 
+// Define output file name
+#define OUTPUT_FILE "stencil.pgm"
+#define WHITE_FLOAT 100.0f
+#define BORDER_FIELD_ALIGNMENT 0x80 // should be at least 32 for vectorization and not greater than 0x1000
+#define CORNER_ALIGNMENT 64
+#define MAIN_FIELD_ALIGNMENT 64
+
+#define MIN(a,b) (((a)<(b))?(a):(b))
+
+
+struct float_ptr_pair {
+  float * ptr1;
+  float * ptr2;
+};
+
+
 void stencil(const int nx, const int ny, const int width, const int height,
              float* image, float* tmp_image);
 
