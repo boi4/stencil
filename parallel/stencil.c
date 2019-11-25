@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <sys/time.h>
 #include <sys/mman.h>
+#include <float.h> // DBL_MAX
 
 #include <mpi.h>
 
@@ -50,29 +51,88 @@ double wtime(void);
 int nprocs, rank;
 
 
-void master(struct dimensions const d, size_t niters) {
-  // Set the input image
-  //init_image(d, image);
 
-  // Call the stencil kernel
-  double tic = wtime();
+void print_runtime(double *tictocs) {
+  double mintic = DBL_MAX;
+  double maxtoc = DBL_MIN;
 
-  //stencil_full(d, image, tmp_image, niters);
-  //stencil_full_inplace(nx, ny, width, height, image, niters);
-
-  double toc = wtime();
+  for (size_t i = 0; i < nprocs; i++) {
+    if (mintic > tictocs[2*i]) {
+      mintic = tictocs[2*i];
+    }
+    if (maxtoc < tictocs[2*i+1]) {
+      maxtoc = tictocs[2*i+1];
+    }
+  }
 
   // Output
   printf("------------------------------------\n");
-  printf(" runtime: %lf s\n", toc - tic);
+  printf(" runtime: %lf s\n", maxtoc - mintic);
   printf("------------------------------------\n");
-
-  //output_image(OUTPUT_FILE, d, image);
 }
 
 
-
 void worker(struct dimensions const d, const size_t niters) {
+  double tictoc[2];
+  tictoc[0] = wtime();
+
+  // do work
+
+  tictoc[1] = wtime();
+
+  size_t rows_offset = rank * (d.ny/niters);
+  size_t num_myrows    = (rank != nprocs-1) ? d.ny/niters : d.ny%niters;
+  size_t num_fields = num_myrows * d.width;
+
+  float *image = malloc(num_fields * sizeof(float));
+
+
+
+
+
+  //========= share times and compute runtime ===========
+  double *recvbuf = NULL;
+  if (rank == 0) {
+    recvbuf = calloc(nprocs, 2 * sizeof(double));
+    if (!recvbuf) {
+      fprintf(stderr, "Error Occured on line %lu\n", __LINE__);
+      exit(-1);
+    }
+  //  memcpy(recvbuf, tictoc, sizeof(double) * 2);
+  }
+
+  //int MPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+  //                   void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm
+
+  MPI_Gather(tictoc, 2, MPI_DOUBLE,
+                recvbuf, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  if (rank == 0) {
+    print_runtime(recvbuf);
+    free(recvbuf);
+  }
+
+
+  //============ write file ====================
+  char headerbuf[0x100];
+  MPI_Status status;
+  MPI_File f;
+
+  MPI_File_open(MPI_COMM_WORLD, OUTPUT_FILE, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &f);
+
+  // header
+  sprintf(headerbuf, "P5 %d %d 255\n", d.nx, d.ny);
+  size_t header_len = strlen(headerbuf);
+  if (rank == 0) {
+    MPI_File_write_at(f, 0, headerbuf, header_len, MPI_CHAR, &status);
+  }
+
+  // write content
+  char *scaled_down = malloc(num_fields * sizeof(char));
+  MPI_File_write_at(f, header_len + rows_offset * width, image, own_size, MPI_CHAR, &status);
+
+  MPI_File_close(&f);
+
 
 }
 
@@ -100,16 +160,9 @@ int main(int argc, char* argv[])
   size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
   size_t height = ny + 2;
 
-  //printf("%d %d\n", nprocs, rank);
-  switch(rank) {
-    case 0:
-      master((struct dimensions){nx, ny, width, height}, niters);
-      break;
 
-    default:
-      worker((struct dimensions){nx, ny, width, height}, niters);
-      break;
-  }
+  worker((struct dimensions){nx, ny, width, height}, niters);
+  MPI_Finalize();
 }
 
 

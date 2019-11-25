@@ -4,6 +4,8 @@ import subprocess
 
 from collections import namedtuple
 
+config = namedtuple("Config", ["prgname", "verboselevel", "nx", "ny", "niters",
+"cpuiter"])("mpi no parallelism", 2, 1024, 1024, 100, range(1, 56, 4))
 
 
 ## mpirun options:
@@ -37,7 +39,6 @@ from collections import namedtuple
 
 
 Job = namedtuple("Job", ["number_of_processes", "number_of_threads" ,"command", "args"])
-config = namedtuple("Config", ["verbose"])(True)
 
 
 
@@ -67,7 +68,7 @@ def verify(ref_name):
 
 
 def run_job(job):
-    if config.verbose:
+    if config.verboselevel:
         print("mpirun -genv OMP_NUM_THREADS {} -np {} {} {}"\
                 .format(job.number_of_threads, job.number_of_processes, job.command, " ".join(job.args)))
     comp = subprocess.run(["mpirun",
@@ -93,7 +94,7 @@ def get_runtime(outtext):
 
 
 
-def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer):
+def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer=range(1,2,1)):
     print(nx, ny, niters)
     print("-"*20)
     for ncpus in cpuiter:
@@ -101,5 +102,9 @@ def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer):
             job = Job(ncpus, nthreads, outname, [str(nx), str(ny), str(niters)])
             stdout, stderr = run_job(job)
             print(ncpus, nthreads, get_runtime(stdout))
+            if config.verboselevel == 2:
+                print(stdout.decode("utf-8"))
+                print("="*20+2*'\n')
 
-test_cpus_range("./out/mpistencil", 1024, 1024 , 100, range(1, 56, 4), range(1,8+1,1))
+print(config.prgname)
+test_cpus_range("./out/mpistencil", config.nx, config.ny , config.niters, config.cpuiter)
