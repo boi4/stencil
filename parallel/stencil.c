@@ -1,144 +1,192 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <sys/time.h>
-#include <sys/mman.h>
-#include <float.h> // DBL_MAX
+#include "stencil.h"
 
-#include <mpi.h>
+#include "util.c"
 
-// Define output file name
-#define OUTPUT_FILE "stencil.pgm"
-#define WHITE_FLOAT 100.0f
-#define BORDER_FIELD_ALIGNMENT 0x80 // should be at least 32 for vectorization and not greater than 0x1000
-#define CORNER_ALIGNMENT 64
-#define MAIN_FIELD_ALIGNMENT 64
-
-#define MIN(a,b) (((a)<(b))?(a):(b))
-
-
-struct float_ptr_pair {
-  float * ptr1;
-  float * ptr2;
-};
-
-struct dimensions {
-  size_t nx;
-  size_t ny;
-  size_t width;
-  size_t height;
-};
-
-
-void stencil(struct dimensions const d, float* image, float* tmp_image);
-
-void stencil_full(struct dimensions const d, float* image, float *tmp_image, size_t niters);
-
-void stencil_full_inplace(struct dimensions const d, float* image, size_t niters);
-
-void init_image(struct dimensions const d, float* image);
-
-void output_image(const char* file_name, struct dimensions const d, float* image);
-
-double wtime(void);
-
-
-
-
-
-
-int nprocs, rank;
-
-
-
-void print_runtime(double *tictocs) {
-  double mintic = DBL_MAX;
-  double maxtoc = DBL_MIN;
-
-  for (size_t i = 0; i < nprocs; i++) {
-    if (mintic > tictocs[2*i]) {
-      mintic = tictocs[2*i];
+// assemble the whole image by taking all results
+void assemble_image(struct dimensions d, float *image
+                    , struct result *results, size_t maxfieldsize) {
+  for (int i = 0; i < nprocs; i++) {
+    struct result *r = (struct result *) ((uint8_t *)results + 
+                  (i * (maxfieldsize*sizeof(float) + sizeof(struct result))));
+    /* print_config(r->c); */
+    if (i == -1) {
+      output_image("test.pgm", (struct dimensions){
+                                                     .nx = r->c.width,
+                                                     .ny = r->c.height,
+                                                     .width = r->c.width,
+                                                     .height = r->c.height
+                                                     }, (float *)r->field);
     }
-    if (maxtoc < tictocs[2*i+1]) {
-      maxtoc = tictocs[2*i+1];
+    for (int y = r->c.y; y < r->c.y+r->c.height; y++) {
+      for (int x = r->c.x; x < r->c.x+r->c.width; x++) {
+        image[y * d.width + x] = r->field[r->c.width*(y-r->c.y) + (x-r->c.x)];
+      }
+    }
+
+  }
+}
+
+//============ write file ====================
+void share_results(struct result const * const res, size_t maxfieldsize,
+                   struct dimensions fulld) {
+  float *image;
+  struct result *results;
+
+  if (rank == 0) {
+    image = calloc(fulld.height * fulld.width, sizeof(float));
+    results = calloc(nprocs, sizeof(struct result) + maxfieldsize*sizeof(float));
+    if (!results || !image) {
+      fprintf(stderr, "Memory Error on line %zu\n", __LINE__);
+      exit(-1);
     }
   }
 
-  // Output
-  printf("------------------------------------\n");
-  printf(" runtime: %lf s\n", maxtoc - mintic);
-  printf("------------------------------------\n");
+  /* printf("sizeof block: %zu\n",sizeof(struct result)+maxfieldsize*sizeof(float)); */
+  MPI_Gather(res,sizeof(struct result)+maxfieldsize*sizeof(float), MPI_CHAR,
+             results,sizeof(struct result)+maxfieldsize*sizeof(float), MPI_CHAR,
+             0, MPI_COMM_WORLD);
+
+  if (rank == 0) {
+    assemble_image(fulld, image, results, maxfieldsize);
+    output_image(OUTPUT_FILE, fulld, image);
+    /* free(image); */
+    /* free(results); */
+  }
+}
+
+void prepare_images(struct config const * const c, float *images[static 2]) {
+  // we will allocate a two row/two column halo region
+  // so we can alternatingly swap horizontally and vertically
+  size_t const image_size = (c->width + 2*2) * (c->height + 2*2);
+  images[0] = (float *) calloc(image_size, sizeof(float));
+  images[1] = (float *) calloc(image_size, sizeof(float));
+  if (!images[0] || !images[1]) {
+    fprintf(stderr, "Image Allocation failed. Please restart application\n");
+    exit(-1);
+  }
+
+  // setup chessboard pattern on first image
+  for (size_t row = c->y; row < c->y+c->height; row++) {
+    float * const restrict cur_row = images[0]+(row-c->y+2)*(c->width+2*2)+2;
+
+    for (size_t col = c->x; col < c->x+c->width; col++) {
+      cur_row[col-c->x] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
+    }
+  }
+  if (rank == -1) {
+    output_image("test.pgm", (struct dimensions){
+                                                   .nx = c->width,
+                                                   .ny = c->height,
+                                                   .width = c->width + 4,
+                                                   .height = c->height + 4
+                                                   }, images[0] + (2 * (c->width+4) + 2));
+  }
 }
 
 
-void worker(struct dimensions const d, const size_t niters) {
+// build result for sharing with process 0
+// removes margin from image
+struct result *buildresult(struct config const * const c, float *field, size_t maxfieldsize) {
+  struct result *res = (struct result *)
+    calloc(1, sizeof(struct result) + maxfieldsize*sizeof(float));
+  if (!res) {
+    fprintf(stderr, "Result allocation failed. Please restart application\n");
+    exit(-1);
+  }
+  res->c = *c;
+  for (int y = 0; y < c->height; y++) {
+    float * restrict cur_row_read = field + (y+2)*(c->width + 2*2) + 2;
+    float * restrict cur_row_write = res->field + y*c->width;
+
+    for (int x = 0; x < c->width; x++) {
+      cur_row_write[x] = cur_row_read[x];
+    }
+  }
+  return res;
+}
+
+
+void swap_halo(struct config const * const myconf, float * const image,
+               bool const left_right_swap) {
+  
+}
+
+
+
+/*
+  Main function for a process
+  prepares part, computes position, stencils & communicates
+  process 0 will measure time and output image to file
+ */
+void worker(struct dimensions const d, size_t const niters) {
   double tictoc[2];
+  float *images[2] = {0};
+  float *dst_image;// will be one of the two images
+
+  struct config const myconf = compute_config(d);
+
+  prepare_images(&myconf, images);
+  /* printf("%p %p\n", images[0], images[1]); */
+
   tictoc[0] = wtime();
 
-  // do work
+  /* if (0) */
+  dst_image = stencil_and_swap(&myconf, images, niters);
+  if (rank == -1) {
+    output_image("test.pgm", (struct dimensions){
+                                                   .nx = myconf.width,
+                                                   .ny = myconf.height,
+                                                   .width = myconf.width + 4,
+                                                   .height = myconf.height + 4
+                                                   }, images[0] + (2 * (myconf.width+4) + 2));
+  }
 
   tictoc[1] = wtime();
 
-  size_t rows_offset = rank * (d.ny/niters);
-  size_t num_myrows    = (rank != nprocs-1) ? d.ny/niters : d.ny%niters;
-  size_t num_fields = num_myrows * d.width;
 
-  float *image = malloc(num_fields * sizeof(float));
+  share_times(tictoc);
 
-
-
-
-
-  //========= share times and compute runtime ===========
-  double *recvbuf = NULL;
-  if (rank == 0) {
-    recvbuf = calloc(nprocs, 2 * sizeof(double));
-    if (!recvbuf) {
-      fprintf(stderr, "Error Occured on line %lu\n", __LINE__);
-      exit(-1);
-    }
-  //  memcpy(recvbuf, tictoc, sizeof(double) * 2);
+  size_t maxfieldsize = MAX(d.nx, d.ny)
+    / (size_t)(sqrt(nprocs)+0.00001) + 1;
+  maxfieldsize *= maxfieldsize;
+  struct result const * const res = buildresult(&myconf, dst_image, maxfieldsize);
+  if (rank == -1) {
+    output_image("test.pgm", (struct dimensions){
+        .nx = res->c.width,
+        .ny = res->c.height,
+        .width = res->c.width,
+        .height = res->c.height
+                                                   }, (float *)res->field);
   }
+  share_results(res, maxfieldsize, d);
 
-  //int MPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-  //                   void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm
+  free((void *)res);
 
-  MPI_Gather(tictoc, 2, MPI_DOUBLE,
-                recvbuf, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  if (rank == 0) {
-    print_runtime(recvbuf);
-    free(recvbuf);
-  }
-
-
-  //============ write file ====================
-  char headerbuf[0x100];
-  MPI_Status status;
-  MPI_File f;
-
-  MPI_File_open(MPI_COMM_WORLD, OUTPUT_FILE, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &f);
-
-  // header
-  sprintf(headerbuf, "P5 %d %d 255\n", d.nx, d.ny);
-  size_t header_len = strlen(headerbuf);
-  if (rank == 0) {
-    MPI_File_write_at(f, 0, headerbuf, header_len, MPI_CHAR, &status);
-  }
-
-  // write content
-  char *scaled_down = malloc(num_fields * sizeof(char));
-  MPI_File_write_at(f, header_len + rows_offset * width, image, own_size, MPI_CHAR, &status);
-
-  MPI_File_close(&f);
-
-
+  free(images[0]);
+  free(images[1]);
 }
 
 
 
-int main(int argc, char* argv[])
+
+void stencil(struct dimensions const d, float* image, float* tmp_image) {
+  /* printf("%p %p\n", image, tmp_image); */
+  for (int i = 1; i < d.nx + 1; ++i) {
+    for (int j = 1; j < d.ny + 1; ++j) {
+      float tmp;
+      tmp  = image[j     + i       * d.height] * 6.0f;
+      tmp += image[j     + (i - 1) * d.height];
+      tmp += image[j     + (i + 1) * d.height];
+      tmp += image[j - 1 + i       * d.height];
+      tmp += image[j + 1 + i       * d.height];
+      tmp_image[j + i * d.height] = tmp * 0.1f;
+    }
+  }
+}
+
+
+
+int main(int argc, char* argv[argc+1])
 {
   // Check usage
   if (argc != 4) {
@@ -157,180 +205,11 @@ int main(int argc, char* argv[])
 
   // we pad width, so each row is 128 bit aligned
   // stencil
-  size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
+  //size_t width  = ((nx + 2) + MAIN_FIELD_ALIGNMENT - 1) & ~(MAIN_FIELD_ALIGNMENT - 1);
+  size_t width = nx + 2;
   size_t height = ny + 2;
 
 
   worker((struct dimensions){nx, ny, width, height}, niters);
   MPI_Finalize();
-}
-
-
-
-
-
-void stencil(struct dimensions const d, float* image, float* tmp_image) {
-  for (int i = 1; i < d.nx + 1; ++i) {
-    for (int j = 1; j < d.ny + 1; ++j) {
-      float tmp;
-      tmp  = image[j     + i       * d.height] * 6.0f;
-      tmp += image[j     + (i - 1) * d.height];
-      tmp += image[j     + (i + 1) * d.height];
-      tmp += image[j - 1 + i       * d.height];
-      tmp += image[j + 1 + i       * d.height];
-      tmp_image[j + i * d.height] = tmp *0.1f;
-    }
-  }
-}
-
-
-
-void init_rows(struct dimensions const d, float *image, size_t start_row, size_t nrows) {
-
-}
-
-
-
-/* this function just stencils the whole field, assuming black borders around it
- * only used if precomputing isn't faster
- */
-void stencil_full_inplace(struct dimensions const d, float* image, const size_t niters)
-{
-  float tmp;
-
-  void *all_ptr = NULL;
-  const size_t aligned = (d.nx + 63) & ~63;
-  if (posix_memalign(&all_ptr, 64, aligned*3*sizeof(float))) {
-    fprintf(stderr, "Memory Error\n");
-    exit(-1);
-  }
-  float * restrict row_buffer1 = __builtin_assume_aligned((float *)all_ptr, 64);
-  float * restrict row_buffer2 = __builtin_assume_aligned(row_buffer1 + aligned, 64);
-  float * restrict row_buffer3 = __builtin_assume_aligned(row_buffer2 + aligned, 64);
-
-  float * restrict prev_row_bak, * restrict cur_row_bak, * restrict tmp2;
-
-  prev_row_bak = row_buffer1; // holds the original previous row
-  cur_row_bak = row_buffer2;  // holds the original current row
-
-  // start stencilin'
-  for (size_t i = 0; i < niters; i++) {
-
-    memset(prev_row_bak, 0, d.nx * sizeof(float)); // first 'invisible' row is black
-
-    for (size_t row = 0; row < d.ny; row++) {
-      float * restrict cur_row = image + ((row+1) * d.width) + 1;
-
-      // stencil over the horizontal
-      row_buffer3[ 0] = 0.0f + cur_row[ 0] * 6.0f + cur_row[ 1];
-      for (size_t col = 1; col < d.nx-1; col++) {
-        row_buffer3[col] = cur_row[col] * 6.0f + cur_row[col+1] + cur_row[col-1];
-      }
-      row_buffer3[d.nx-1] = 0.0f + cur_row[d.nx-1] * 6.0f + cur_row[d.nx-2];
-      
-      for (size_t i = 0; i < d.nx; i++) {
-        cur_row_bak[i] = cur_row[i];
-      }
-
-      // row additions
-      // Add previous and following line
-      float * restrict nxt_row = cur_row + d.width;
-      for (size_t col = 0; col < d.nx; col++) {
-        tmp = prev_row_bak[col] + nxt_row[col] + row_buffer3[col];
-        cur_row[col] = tmp * 0.1f;
-      }
-
-      // switch buffers
-      tmp2 = prev_row_bak;
-      prev_row_bak = cur_row_bak;
-      cur_row_bak = tmp2;
-    }
-  }
-
-  free(all_ptr);
-}
-
-
-
-
-
-void stencil_full(struct dimensions const d, float* image, float *tmp_image, const size_t niters) {
-  for (int t = 0; t < niters/2; ++t) {
-    stencil(d, image, tmp_image);
-    stencil(d, tmp_image, image);
-  }
-}
-
-
-// Create the input image
-void init_image(struct dimensions const d, float *image)
-{
-  const int tile_size = 64;
-  // checkerboard pattern
-  for (int yb = 0; yb < d.ny; yb += tile_size) {
-    for (int xb = 0; xb < d.nx; xb += tile_size) {
-      if ((xb + yb) % (tile_size * 2)) {
-        const int ylim = (yb + tile_size > d.ny) ? d.ny : yb + tile_size;
-        const int xlim = (xb + tile_size > d.nx) ? d.nx : xb + tile_size;
-        for (int y = yb + 1; y < ylim + 1; y++) {
-          for (int x = xb + 1; x < xlim + 1; x++) {
-            image[x + y * d.width] = WHITE_FLOAT;
-          }
-        }
-      }
-    }
-  }
-}
-
-
-
-// Routine to output the image in Netpbm grayscale binary image format
-void output_image(const char* file_name, struct dimensions const d, float* image)
-{
-  // Open output file
-  FILE* fp = fopen(file_name, "w");
-  if (!fp) {
-    fprintf(stderr, "Error: Could not open %s\n", OUTPUT_FILE);
-    exit(EXIT_FAILURE);
-  }
-
-  // Ouptut image header
-  fprintf(fp, "P5 %d %d 255\n", d.nx, d.ny);
-
-  // Calculate maximum value of image
-  // This is used to rescale the values
-  // to a range of 0-255 for output
-  float maximum = 0.0;
-  for (int y = 1; y < d.ny + 1; y++) {
-    for (int x = 1; x < d.nx + 1; x++) {
-      if (image[x + y * d.width] > maximum) maximum = image[x + y * d.width];
-    }
-  }
-
-  // Output image, converting to numbers 0-255
-  for (int y = 1; y < d.ny + 1; y++) {
-    for (int x = 1; x < d.nx + 1; x++) {
-      fputc((char)(255.0f * image[x + y * d.width] / maximum), fp);
-    }
-  }
-
-  // Close the file
-  fclose(fp);
-}
-
-
-
-
-
-// =====================================================================================================
-// NOT TOUCHED
-// =====================================================================================================
-
-
-// Get the current time in seconds since the Epoch
-double wtime(void)
-{
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return tv.tv_sec + tv.tv_usec * 1e-6;
 }

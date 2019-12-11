@@ -4,8 +4,12 @@ import subprocess
 
 from collections import namedtuple
 
+size = 1024
+cpuiter = range(1, 56, 4)
+cpuiter = range(56,57)
+
 config = namedtuple("Config", ["prgname", "verboselevel", "nx", "ny", "niters",
-"cpuiter"])("mpi no parallelism", 2, 1024, 1024, 100, range(1, 56, 4))
+"cpuiter"])("mpi no parallelism", 2, size, size, 100, cpuiter)
 
 
 ## mpirun options:
@@ -106,5 +110,6 @@ def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer=range(1,2,1)):
                 print(stdout.decode("utf-8"))
                 print("="*20+2*'\n')
 
+print("hello from python")
 print(config.prgname)
 test_cpus_range("./out/mpistencil", config.nx, config.ny , config.niters, config.cpuiter)

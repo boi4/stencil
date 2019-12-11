@@ -11,6 +11,7 @@
 #SBATCH --exclusive
 
 # Print some information about the job
+cd ~/working/parallel
 echo "Running on host $(hostname)"
 echo "Time is $(date)"
 echo "Directory is $(pwd)"
@@ -27,17 +28,14 @@ echo
 echo "Current git commit: $(git rev-parse HEAD)"
 echo
 echo "compiling..."
-make
-echo "done"
-echo 
 
-### Enable using `srun` with Intel MPI
-# export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
-##
-### Run the executable
-##srun ./stencil 1024 1024 100
+if make; then
+    echo "done"
+    echo
 
 
-python3 ./bench.py
-
+    echo starting
+    python3 ./bench.py
+    echo "done benching"
+fi
 echo "done benching"
