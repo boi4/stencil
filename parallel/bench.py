@@ -6,10 +6,16 @@ from collections import namedtuple
 
 size = 1024
 cpuiter = range(1, 56, 4)
-cpuiter = range(56,57)
+# cpuiter = range(8,9)
+# cpuiter = range(56,57)
+# cpuiter = range(41,42)
+cpuiter = range(1, 4)
+# cpuiter = range(5, 6)
+# cpuiter = range(15, 16)
+# cpuiter = range(16, 17)
 
-config = namedtuple("Config", ["prgname", "verboselevel", "nx", "ny", "niters",
-"cpuiter"])("mpi no parallelism", 2, size, size, 100, cpuiter)
+config_temp = namedtuple("Config", ["prgname", "verboselevel", "nx", "ny", "niters", "cpuiter"])
+config =                config_temp("mpi no stencil", 2, size, size, 100, cpuiter)
 
 
 ## mpirun options:
@@ -48,27 +54,30 @@ Job = namedtuple("Job", ["number_of_processes", "number_of_threads" ,"command", 
 
 def verify(ref_name):
     with open(ref_name, "rb") as stencil_ref:
-        with open("stencil.pgm", "rb") as stencil_res:
-            # Check image header
-            ref_format, ref_nx, ref_ny, ref_depth = stencil_ref.readline().split()
-            format, nx, ny, depth = stencil_res.readline().split()
-            if not (format == ref_format == b"P5"):
-                print("Error: incorrect file format"); sys.exit()
-            if not (depth == ref_depth == b"255"):
-                print("Error: incorrect depth value"); sys.exit()
-            if not (nx == ref_nx and ny == ref_ny):
-                print("Error: image sizes do not match"); sys.exit()
+        try:
+            with open("stencil.pgm", "rb") as stencil_res:
+                # Check image header
+                ref_format, ref_nx, ref_ny, ref_depth = stencil_ref.readline().split()
+                format, nx, ny, depth = stencil_res.readline().split()
+                if not (format == ref_format == b"P5"):
+                    print("Error: incorrect file format"); sys.exit()
+                if not (depth == ref_depth == b"255"):
+                    print("Error: incorrect depth value"); sys.exit()
+                if not (nx == ref_nx and ny == ref_ny):
+                    print("Error: image sizes do not match"); sys.exit()
 
-            # Compare images
-            passed = True
-            for j in range(int(ref_ny)):
-                for i in range(int(ref_nx)):
-                    ref_val = ord(stencil_ref.read(1))
-                    val     = ord(stencil_res.read(1))
-                    if abs(ref_val - val) > 1:
-                        passed = False
+                # Compare images
+                passed = True
+                for j in range(int(ref_ny)):
+                    for i in range(int(ref_nx)):
+                        ref_val = ord(stencil_ref.read(1))
+                        val     = ord(stencil_res.read(1))
+                        if abs(ref_val - val) > 1:
+                            passed = False
 
-            return passed
+                return passed
+        except:
+            return False
 
 
 def run_job(job):
@@ -98,18 +107,30 @@ def get_runtime(outtext):
 
 
 
-def test_cpus_range(outname, nx, ny, niters, cpuiter, threaditer=range(1,2,1)):
+def test_cpus_range(outname, nx, ny, niters, cpuiter, ver=False, vername=""):
+    threaditer=range(1,2,1) 
     print(nx, ny, niters)
     print("-"*20)
+    false_ones = []
     for ncpus in cpuiter:
         for nthreads in threaditer:
+            if ver:
+                subprocess.run(["/bin/rm",  "stencil.pgm"])
             job = Job(ncpus, nthreads, outname, [str(nx), str(ny), str(niters)])
             stdout, stderr = run_job(job)
             print(ncpus, nthreads, get_runtime(stdout))
+            if ver:
+                f = verify(vername)
+                print("Verify with", vername, ":", f)
+                if not f:
+                    false_ones.append(ncpus)
             if config.verboselevel == 2:
                 print(stdout.decode("utf-8"))
                 print("="*20+2*'\n')
+    if ver:
+        print(false_ones)
+
 
 print("hello from python")
 print(config.prgname)
-test_cpus_range("./out/mpistencil", config.nx, config.ny , config.niters, config.cpuiter)
+test_cpus_range("./out/mpistencil", config.nx, config.ny , config.niters, config.cpuiter, True, "clean.pgm")

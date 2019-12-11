@@ -9,7 +9,8 @@ void assemble_image(struct dimensions d, float *image
     struct result *r = (struct result *) ((uint8_t *)results + 
                   (i * (maxfieldsize*sizeof(float) + sizeof(struct result))));
     /* print_config(r->c); */
-    if (i == -1) {
+    //if (i == -1) {
+    if (false) {
       output_image("test.pgm", (struct dimensions){
                                                      .nx = r->c.width,
                                                      .ny = r->c.height,
@@ -49,14 +50,14 @@ void share_results(struct result const * const res, size_t maxfieldsize,
   if (rank == 0) {
     assemble_image(fulld, image, results, maxfieldsize);
     output_image(OUTPUT_FILE, fulld, image);
-    /* free(image); */
-    /* free(results); */
+    free(image);
+    free(results);
   }
 }
 
+// we will allocate a two row/two column halo region
+// so we can alternatingly swap horizontally and vertically
 void prepare_images(struct config const * const c, float *images[static 2]) {
-  // we will allocate a two row/two column halo region
-  // so we can alternatingly swap horizontally and vertically
   size_t const image_size = (c->width + 2*2) * (c->height + 2*2);
   images[0] = (float *) calloc(image_size, sizeof(float));
   images[1] = (float *) calloc(image_size, sizeof(float));
@@ -66,6 +67,7 @@ void prepare_images(struct config const * const c, float *images[static 2]) {
   }
 
   // setup chessboard pattern on first image
+  // row-major
   for (size_t row = c->y; row < c->y+c->height; row++) {
     float * const restrict cur_row = images[0]+(row-c->y+2)*(c->width+2*2)+2;
 
@@ -73,7 +75,8 @@ void prepare_images(struct config const * const c, float *images[static 2]) {
       cur_row[col-c->x] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
     }
   }
-  if (rank == -1) {
+  /* if (rank == -1) { */
+  if (false) {
     output_image("test.pgm", (struct dimensions){
                                                    .nx = c->width,
                                                    .ny = c->height,
@@ -132,7 +135,11 @@ void worker(struct dimensions const d, size_t const niters) {
 
   /* if (0) */
   dst_image = stencil_and_swap(&myconf, images, niters);
-  if (rank == -1) {
+
+  tictoc[1] = wtime();
+
+  /* if (rank == -1) { */
+  if (false) {
     output_image("test.pgm", (struct dimensions){
                                                    .nx = myconf.width,
                                                    .ny = myconf.height,
@@ -141,13 +148,10 @@ void worker(struct dimensions const d, size_t const niters) {
                                                    }, images[0] + (2 * (myconf.width+4) + 2));
   }
 
-  tictoc[1] = wtime();
-
-
   share_times(tictoc);
 
   size_t maxfieldsize = MAX(d.nx, d.ny)
-    / (size_t)(sqrt(nprocs)+0.00001) + 1;
+    / (size_t)(sqrt(nprocs+4)+0.00001 - 1) + 1;
   maxfieldsize *= maxfieldsize;
   struct result const * const res = buildresult(&myconf, dst_image, maxfieldsize);
   if (rank == -1) {
@@ -171,15 +175,15 @@ void worker(struct dimensions const d, size_t const niters) {
 
 void stencil(struct dimensions const d, float* image, float* tmp_image) {
   /* printf("%p %p\n", image, tmp_image); */
-  for (int i = 1; i < d.nx + 1; ++i) {
-    for (int j = 1; j < d.ny + 1; ++j) {
+  for (int y = 1; y < d.ny + 1; y++) {
+    for (int x = 1; x < d.nx + 1; x++) {
       float tmp;
-      tmp  = image[j     + i       * d.height] * 6.0f;
-      tmp += image[j     + (i - 1) * d.height];
-      tmp += image[j     + (i + 1) * d.height];
-      tmp += image[j - 1 + i       * d.height];
-      tmp += image[j + 1 + i       * d.height];
-      tmp_image[j + i * d.height] = tmp * 0.1f;
+      tmp  = image[  y     *d.width +  x      ] * 6.0f;
+      tmp += image[  y     *d.width + (x - 1) ];
+      tmp += image[  y     *d.width + (x + 1) ];
+      tmp += image[ (y - 1)*d.width +  x      ];
+      tmp += image[ (y + 1)*d.width +  x      ];
+      tmp_image[y * d.width + x] = tmp * 0.1f;
     }
   }
 }
