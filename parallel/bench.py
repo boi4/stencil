@@ -5,13 +5,13 @@ import subprocess
 from collections import namedtuple
 
 size = 1024
-cpuiter = range(1, 56, 4)
+# cpuiter = range(1, 56, 4)
 # cpuiter = range(8,9)
 # cpuiter = range(56,57)
 # cpuiter = range(41,42)
-cpuiter = range(1, 4)
+# cpuiter = range(1, 4)
 # cpuiter = range(5, 6)
-# cpuiter = range(15, 16)
+cpuiter = range(15, 16)
 # cpuiter = range(16, 17)
 
 config_temp = namedtuple("Config", ["prgname", "verboselevel", "nx", "ny", "niters", "cpuiter"])
@@ -126,6 +126,7 @@ def test_cpus_range(outname, nx, ny, niters, cpuiter, ver=False, vername=""):
                     false_ones.append(ncpus)
             if config.verboselevel == 2:
                 print(stdout.decode("utf-8"))
+                print(stderr.decode("utf-8"))
                 print("="*20+2*'\n')
     if ver:
         print(false_ones)

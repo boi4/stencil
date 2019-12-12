@@ -59,9 +59,11 @@ void share_results(struct result const * const res, size_t maxfieldsize,
 // so we can alternatingly swap horizontally and vertically
 void prepare_images(struct config const * const c, float *images[static 2]) {
   size_t const image_size = (c->width + 2*2) * (c->height + 2*2);
-  images[0] = (float *) calloc(image_size, sizeof(float));
-  images[1] = (float *) calloc(image_size, sizeof(float));
-  if (!images[0] || !images[1]) {
+  // its better to call calloc once, because the glibc memory management
+  // might not allocate them next to each other
+  images[0] = (float *) calloc(2 * image_size, sizeof(float));
+  images[1] = images[0] + image_size;
+  if (!images[0]) {
     fprintf(stderr, "Image Allocation failed. Please restart application\n");
     exit(-1);
   }
@@ -75,7 +77,6 @@ void prepare_images(struct config const * const c, float *images[static 2]) {
       cur_row[col-c->x] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
     }
   }
-  /* if (rank == -1) { */
   if (false) {
     output_image("test.pgm", (struct dimensions){
                                                    .nx = c->width,
@@ -83,6 +84,25 @@ void prepare_images(struct config const * const c, float *images[static 2]) {
                                                    .width = c->width + 4,
                                                    .height = c->height + 4
                                                    }, images[0] + (2 * (c->width+4) + 2));
+  }
+}
+
+
+void prepare_buffers(struct config const * const c, float *lr_cols[static 4],
+                     float **rowbuf) {
+  size_t const colsize = 2 * (c->height + 2); // actually stores two columns
+  lr_cols[0] = calloc(4 * colsize, sizeof(float));
+  lr_cols[1] = lr_cols[0] + 1 * colsize;
+  lr_cols[2] = lr_cols[0] + 2 * colsize;
+  lr_cols[3] = lr_cols[0] + 3 * colsize;
+  if (!lr_cols[0]) {
+    fprintf(stderr, "Buffer Allocation failed. Please restart application\n");
+    exit(-1);
+  }
+  *rowbuf = calloc((c->width + 2) * 2, sizeof(float));
+  if (!*rowbuf) {
+    fprintf(stderr, "Buffer2 Allocation failed. Please restart application\n");
+    exit(-1);
   }
 }
 
@@ -110,8 +130,54 @@ struct result *buildresult(struct config const * const c, float *field, size_t m
 
 
 void swap_halo(struct config const * const myconf, float * const image,
-               bool const left_right_swap) {
-  
+               bool const left_right_swap, float *lr_cols[static 4],
+               float * restrict rowbuf) {
+  if (left_right_swap) {
+    // may add static to size
+    size_t const size = (myconf->height + 2) * 2;
+    // first move data right
+    int ne = myconf->neighbours[EAST];
+    int nw = myconf->neighbours[WEST];
+    if (ne == -1)
+      ne = MPI_PROC_NULL;
+    if (nw == -1)
+      nw = MPI_PROC_NULL;
+    int sendtag = 0;
+    int recvtag = 0;
+    MPI_Status status;
+    MPI_Sendrecv(lr_cols[1], size, MPI_FLOAT, ne, sendtag,
+                 lr_cols[2], size, MPI_FLOAT, nw, recvtag,
+                 MPI_COMM_WORLD, &status);
+    // then left
+    MPI_Sendrecv(lr_cols[0], size, MPI_FLOAT, nw, sendtag,
+                 lr_cols[3], size, MPI_FLOAT, ne, recvtag,
+                 MPI_COMM_WORLD, &status);
+  } else {
+    size_t const size = (myconf->width + 2) * 2;
+    // first move data right
+    int nn = myconf->neighbours[NORTH];
+    int ns = myconf->neighbours[SOUTH];
+    if (nn == -1)
+      nn = MPI_PROC_NULL;
+    if (ns == -1)
+      ns = MPI_PROC_NULL;
+    int sendtag = 0;
+    int recvtag = 0;
+    MPI_Status status;
+    // first up
+    MPI_Sendrecv(image+2, size, MPI_FLOAT, nn, sendtag,
+                 rowbuf, size, MPI_FLOAT, ns, recvtag,
+                 MPI_COMM_WORLD, &status);
+    // then down
+    float * restrict last_rows =
+      image+(myconf->width + 2*2)*(myconf->height+2) + 2;
+    MPI_Sendrecv(last_rows, size, MPI_FLOAT, ns, sendtag,
+                 image+2, size, MPI_FLOAT, nn, recvtag,
+                 MPI_COMM_WORLD, &status);
+    for (int i = 0; i < size; i++) {
+      last_rows[i] = rowbuf[i];
+    }
+  }
 }
 
 
@@ -124,17 +190,22 @@ void swap_halo(struct config const * const myconf, float * const image,
 void worker(struct dimensions const d, size_t const niters) {
   double tictoc[2];
   float *images[2] = {0};
+  float *lr_cols[4] = {0};
+  float *rowbuf;
   float *dst_image;// will be one of the two images
 
   struct config const myconf = compute_config(d);
 
+  // we definetly want to avoid syscalls during time measurements!!!!!!!!
   prepare_images(&myconf, images);
-  /* printf("%p %p\n", images[0], images[1]); */
+  prepare_buffers(&myconf, lr_cols, &rowbuf);
+
+  // wait for all processes
+  MPI_Barrier(MPI_COMM_WORLD);
 
   tictoc[0] = wtime();
 
-  /* if (0) */
-  dst_image = stencil_and_swap(&myconf, images, niters);
+  dst_image = stencil_and_swap(&myconf, images, lr_cols, rowbuf, niters);
 
   tictoc[1] = wtime();
 
@@ -151,7 +222,7 @@ void worker(struct dimensions const d, size_t const niters) {
   share_times(tictoc);
 
   size_t maxfieldsize = MAX(d.nx, d.ny)
-    / (size_t)(sqrt(nprocs+4)+0.00001 - 1) + 1;
+    / (size_t)(MAX(sqrt(nprocs)+0.00001, 2.0) - 1) + 1;
   maxfieldsize *= maxfieldsize;
   struct result const * const res = buildresult(&myconf, dst_image, maxfieldsize);
   if (rank == -1) {
@@ -165,15 +236,16 @@ void worker(struct dimensions const d, size_t const niters) {
   share_results(res, maxfieldsize, d);
 
   free((void *)res);
-
   free(images[0]);
-  free(images[1]);
+  free(lr_cols[0]);
+  free(rowbuf);
 }
 
 
 
 
-void stencil(struct dimensions const d, float* image, float* tmp_image) {
+void stencil(struct dimensions const d, float* image, float* tmp_image,
+             float *lr_cols[static 4]) {
   /* printf("%p %p\n", image, tmp_image); */
   for (int y = 1; y < d.ny + 1; y++) {
     for (int x = 1; x < d.nx + 1; x++) {
