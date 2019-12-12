@@ -57,7 +57,9 @@ void share_results(struct result const * const res, size_t maxfieldsize,
 
 // we will allocate a two row/two column halo region
 // so we can alternatingly swap horizontally and vertically
-void prepare_images(struct config const * const c, float *images[static 2]) {
+void prepare_images(struct dimensions const * const fulld,
+                    struct config const * const c,
+                    float *images[static 2]) {
   size_t const image_size = (c->width + 2*2) * (c->height + 2*2);
   // its better to call calloc once, because the glibc memory management
   // might not allocate them next to each other
@@ -70,10 +72,14 @@ void prepare_images(struct config const * const c, float *images[static 2]) {
 
   // setup chessboard pattern on first image
   // row-major
-  for (size_t row = c->y; row < c->y+c->height; row++) {
+  for (size_t row = MAX((long)c->y-2,0l);
+       row < MIN(c->y+c->height+2, fulld->ny);
+       row++) {
     float * const restrict cur_row = images[0]+(row-c->y+2)*(c->width+2*2)+2;
 
-    for (size_t col = c->x; col < c->x+c->width; col++) {
+    for (size_t col = MAX((long)c->x-2,0l);
+         col < MIN(c->x+c->width+2,fulld->nx);
+         col++) {
       cur_row[col-c->x] = ((col & 64) ^ (row & 64)) ? WHITE_FLOAT : 0.0f;
     }
   }
@@ -99,7 +105,7 @@ void prepare_buffers(struct config const * const c, float *lr_cols[static 4],
     fprintf(stderr, "Buffer Allocation failed. Please restart application\n");
     exit(-1);
   }
-  *rowbuf = calloc((c->width + 2) * 2, sizeof(float));
+  *rowbuf = calloc((c->width+2*2) * 2, sizeof(float));
   if (!*rowbuf) {
     fprintf(stderr, "Buffer2 Allocation failed. Please restart application\n");
     exit(-1);
@@ -153,7 +159,7 @@ void swap_halo(struct config const * const myconf, float * const image,
                  lr_cols[3], size, MPI_FLOAT, ne, recvtag,
                  MPI_COMM_WORLD, &status);
   } else {
-    size_t const size = (myconf->width + 2) * 2;
+    size_t const size = (myconf->width + 2*2) * 2;
     // first move data right
     int nn = myconf->neighbours[NORTH];
     int ns = myconf->neighbours[SOUTH];
@@ -165,7 +171,7 @@ void swap_halo(struct config const * const myconf, float * const image,
     int recvtag = 0;
     MPI_Status status;
     // first up
-    MPI_Sendrecv(image+2, size, MPI_FLOAT, nn, sendtag,
+    MPI_Sendrecv(image, size, MPI_FLOAT, nn, sendtag,
                  rowbuf, size, MPI_FLOAT, ns, recvtag,
                  MPI_COMM_WORLD, &status);
     // then down
@@ -197,7 +203,7 @@ void worker(struct dimensions const d, size_t const niters) {
   struct config const myconf = compute_config(d);
 
   // we definetly want to avoid syscalls during time measurements!!!!!!!!
-  prepare_images(&myconf, images);
+  prepare_images(&d, &myconf, images);
   prepare_buffers(&myconf, lr_cols, &rowbuf);
 
   // wait for all processes
